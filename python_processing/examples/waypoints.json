@@ -1,0 +1,23 @@
+[
+  {
+    "name": "Field_Section_A",
+    "lat": 37.7749,
+    "lng": -122.4194
+  },
+  {
+    "name": "Field_Section_B",
+    "lat": 37.7755,
+    "lng": -122.4200
+  },
+  {
+    "name": "Field_Section_C",
+    "lat": 37.7730,
+    "lng": -122.4210
+  },
+  {
+    "name": "Field_Section_D",
+    "lat": 37.7720,
+    "lng": -122.4180
+  }
+]
+
