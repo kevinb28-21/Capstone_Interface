@@ -5,8 +5,18 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { v4 as uuidv4 } from 'uuid';
 import { nanoid } from 'nanoid';
 import { uploadToS3, generateS3Key, isS3Enabled, getBucketName } from './s3-utils.js';
+import { 
+  getDbPool, 
+  testConnection, 
+  getAllImages, 
+  getImageById, 
+  saveImage, 
+  getTelemetry, 
+  updateTelemetry 
+} from './db-utils.js';
 
 dotenv.config();
 
@@ -24,19 +34,6 @@ const app = express();
 app.use(cors({ origin: ORIGIN }));
 app.use(express.json({ limit: '10mb' }));
 
-// In-memory stores (replace with DB later)
-const images = new Map(); // id -> { id, filename, originalName, path, analysis, createdAt }
-const telemetry = {
-  position: { lat: 43.6532, lng: -79.3832 },
-  route: [],
-  geofence: [
-    { lat: 43.6555, lng: -79.391 },
-    { lat: 43.6505, lng: -79.391 },
-    { lat: 43.6505, lng: -79.3755 },
-    { lat: 43.6555, lng: -79.3755 }
-  ]
-};
-
 // Multer setup
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
@@ -48,49 +45,60 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Placeholder analysis function
-function analyzeCropHealthPlaceholder(filePath) {
-  // Mock NDVI-like score and stress areas
-  const ndvi = Number((Math.random() * 0.5 + 0.25).toFixed(2)); // 0.25 - 0.75
-  const stressZones = Array.from({ length: 5 }, () => ({
-    x: Math.floor(Math.random() * 10),
-    y: Math.floor(Math.random() * 10),
-    severity: Number((Math.random() * 0.5 + 0.5).toFixed(2))
-  }));
-  return {
-    ndvi,
-    summary: ndvi > 0.5 ? 'Healthy' : 'Attention needed',
-    stressZones
-  };
-}
+/**
+ * Note: Images saved to database with status 'uploaded' will be automatically
+ * processed by the background worker (python_processing/background_worker.py).
+ * No need to forward to Flask API - the worker monitors the database.
+ */
+
+// Initialize database connection on startup
+let dbConnected = false;
+(async () => {
+  try {
+    dbConnected = await testConnection();
+    if (dbConnected) {
+      console.log('✓ Database connected');
+    } else {
+      console.warn('⚠️  Database connection failed - some features may not work');
+    }
+  } catch (error) {
+    console.error('Database initialization error:', error);
+  }
+})();
 
 // Routes
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+app.get('/api/health', async (req, res) => {
+  const dbStatus = await testConnection();
+  res.json({ 
+    status: 'ok',
+    database: dbStatus ? 'connected' : 'disconnected',
+    service: 'nodejs-backend'
+  });
 });
 
 // Serve uploaded files
 app.use('/uploads', express.static(UPLOAD_DIR));
 
-// Upload image and analyze
+// Upload image and save to database
 app.post('/api/images', upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image uploaded' });
   }
   
+  if (!dbConnected) {
+    return res.status(503).json({ error: 'Database not connected' });
+  }
+  
   try {
-    const id = nanoid(12);
+    const id = uuidv4();
     
     // Upload to S3 (or use local path if S3 disabled)
     const s3Key = generateS3Key(req.file.filename);
     const s3Url = await uploadToS3(req.file.path, s3Key, req.file.mimetype);
     
     // Use S3 URL if available, otherwise local path
-    const imagePath = s3Url || `/uploads/${req.file.filename}`;
+    const imagePath = s3Url || req.file.path;
     const s3Stored = !!s3Url;
-    
-    // Perform analysis
-    const analysis = analyzeCropHealthPlaceholder(req.file.path);
     
     // Parse GPS metadata if provided (from Camera X app)
     let gpsData = null;
@@ -103,20 +111,31 @@ app.post('/api/images', upload.single('image'), async (req, res) => {
       }
     }
     
-    const fileRecord = {
+    // Save to database with status 'uploaded'
+    // Background worker will automatically process it
+    const imageId = await saveImage({
       id,
       filename: req.file.filename,
       originalName: req.file.originalname,
-      path: imagePath,
+      filePath: s3Stored ? null : req.file.path, // Store local path for processing if not S3
       s3Url: s3Url,
       s3Key: s3Stored ? s3Key : null,
       s3Stored: s3Stored,
-      gps: gpsData,
-      createdAt: new Date().toISOString(),
-      analysis: analysis
-    };
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+      gps: gpsData
+    });
     
-    images.set(id, fileRecord);
+    console.log(`✓ Image ${imageId} saved to database (status: uploaded)`);
+    console.log(`  Background worker will process it automatically`);
+    
+    // Get the saved image record
+    const fileRecord = await getImageById(imageId);
+    
+    if (!fileRecord) {
+      return res.status(500).json({ error: 'Failed to retrieve saved image' });
+    }
+    
     res.json(fileRecord);
   } catch (error) {
     console.error('Error uploading image:', error);
@@ -125,48 +144,131 @@ app.post('/api/images', upload.single('image'), async (req, res) => {
 });
 
 // List images
-app.get('/api/images', (req, res) => {
-  res.json(Array.from(images.values()).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)));
+app.get('/api/images', async (req, res) => {
+  try {
+    if (!dbConnected) {
+      return res.status(503).json({ error: 'Database not connected' });
+    }
+    
+    const limit = parseInt(req.query.limit || '100', 10);
+    const images = await getAllImages(limit);
+    res.json(images);
+  } catch (error) {
+    console.error('Error fetching images:', error);
+    res.status(500).json({ error: 'Failed to fetch images', details: error.message });
+  }
 });
 
 // Get one image
-app.get('/api/images/:id', (req, res) => {
-  const item = images.get(req.params.id);
-  if (!item) return res.status(404).json({ error: 'Not found' });
-  res.json(item);
+app.get('/api/images/:id', async (req, res) => {
+  try {
+    if (!dbConnected) {
+      return res.status(503).json({ error: 'Database not connected' });
+    }
+    
+    const image = await getImageById(req.params.id);
+    if (!image) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+    res.json(image);
+  } catch (error) {
+    console.error('Error fetching image:', error);
+    res.status(500).json({ error: 'Failed to fetch image', details: error.message });
+  }
 });
 
 // Telemetry
-app.get('/api/telemetry', (req, res) => {
-  res.json(telemetry);
+app.get('/api/telemetry', async (req, res) => {
+  try {
+    if (!dbConnected) {
+      // Return default telemetry if DB not connected
+      return res.json({
+        position: { lat: 43.6532, lng: -79.3832 },
+        route: [],
+        geofence: [
+          { lat: 43.6555, lng: -79.391 },
+          { lat: 43.6505, lng: -79.391 },
+          { lat: 43.6505, lng: -79.3755 },
+          { lat: 43.6555, lng: -79.3755 }
+        ]
+      });
+    }
+    
+    const telemetryData = await getTelemetry();
+    res.json(telemetryData);
+  } catch (error) {
+    console.error('Error fetching telemetry:', error);
+    res.status(500).json({ error: 'Failed to fetch telemetry', details: error.message });
+  }
 });
 
-app.post('/api/telemetry', (req, res) => {
-  const { position, route, geofence } = req.body || {};
-  if (position && typeof position.lat === 'number' && typeof position.lng === 'number') {
-    telemetry.position = position;
+app.post('/api/telemetry', async (req, res) => {
+  try {
+    if (!dbConnected) {
+      return res.status(503).json({ error: 'Database not connected' });
+    }
+    
+    const { position, route, geofence } = req.body || {};
+    
+    // Validate and prepare telemetry data
+    const telemetryData = {};
+    
+    if (position && typeof position.lat === 'number' && typeof position.lng === 'number') {
+      telemetryData.position = position;
+    }
+    
+    if (Array.isArray(route)) {
+      telemetryData.route = route;
+    } else if (position) {
+      // Append current position to route if not provided
+      const currentTelemetry = await getTelemetry();
+      currentTelemetry.route.push(position);
+      if (currentTelemetry.route.length > 5000) {
+        currentTelemetry.route.shift();
+      }
+      telemetryData.route = currentTelemetry.route;
+    }
+    
+    if (Array.isArray(geofence)) {
+      telemetryData.geofence = geofence;
+    }
+    
+    // Update database
+    if (Object.keys(telemetryData).length > 0) {
+      await updateTelemetry(telemetryData);
+    }
+    
+    // Return updated telemetry
+    const updatedTelemetry = await getTelemetry();
+    res.json(updatedTelemetry);
+  } catch (error) {
+    console.error('Error updating telemetry:', error);
+    res.status(500).json({ error: 'Failed to update telemetry', details: error.message });
   }
-  if (Array.isArray(route)) {
-    telemetry.route = route;
-  } else {
-    // Append current position to route if not provided
-    telemetry.route.push(telemetry.position);
-    if (telemetry.route.length > 5000) telemetry.route.shift();
-  }
-  if (Array.isArray(geofence)) {
-    telemetry.geofence = geofence;
-  }
-  res.json(telemetry);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server listening on http://localhost:${PORT}`);
+  
+  // Check database connection
+  const dbStatus = await testConnection();
+  if (dbStatus) {
+    console.log('✓ Database connected');
+  } else {
+    console.log('⚠️  Database not connected - some features may not work');
+    console.log('   Set DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD in .env');
+  }
+  
+  // Check S3 configuration
   if (isS3Enabled()) {
     console.log(`✓ S3 storage enabled: ${getBucketName()}`);
   } else {
     console.log('⚠️  S3 storage disabled (using local storage)');
     console.log('   Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, and S3_BUCKET_NAME to enable');
   }
+  
+  console.log('✓ Background worker will process images automatically');
+  console.log('   Make sure background_worker.py is running for image analysis');
 });
 
 
