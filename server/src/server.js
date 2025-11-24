@@ -31,7 +31,37 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const app = express();
-app.use(cors({ origin: ORIGIN }));
+
+// CORS configuration - support multiple origins and credentials
+const allowedOrigins = (ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
+if (allowedOrigins.length === 0) {
+  allowedOrigins.push('http://localhost:5173');
+}
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    // Log for debugging
+    console.warn(`CORS blocked origin: ${origin}`);
+    return callback(new Error(`Origin ${origin} not allowed by CORS`), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Explicitly set credentials header
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Credentials', 'true');
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 
 // Multer setup
