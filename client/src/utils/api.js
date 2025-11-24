@@ -3,18 +3,41 @@
  * Handles API calls with environment-aware base URL
  */
 
-// Use environment variable in production, fallback to localhost for dev
-const API_URL = import.meta.env.VITE_API_URL || 
-  (import.meta.env.PROD 
-    ? 'http://ec2-18-223-169-5.us-east-2.compute.amazonaws.com'
-    : 'http://localhost:5050');
+/**
+ * Resolve API base URL depending on environment
+ * - Development: always use local server
+ * - Production: prefer VITE_API_URL, otherwise use relative paths (Netlify redirects)
+ */
+const getApiBaseUrl = () => {
+  if (import.meta.env.DEV) {
+    return 'http://localhost:5050';
+  }
+  // If a production override exists, use it (must be HTTPS when served from Netlify)
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // Default to same-origin requests so Netlify redirects/proxies can handle HTTPS
+  return '';
+};
+
+const API_URL = getApiBaseUrl();
+
+const buildUrl = (endpoint) => {
+  if (endpoint.startsWith('http')) {
+    return endpoint;
+  }
+  if (!API_URL) {
+    return endpoint; // relative URL
+  }
+  return `${API_URL.replace(/\/$/, '')}${endpoint}`;
+};
 
 export const api = {
   /**
    * GET request
    */
   get: async (endpoint) => {
-    const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint}`;
+    const url = buildUrl(endpoint);
     try {
       const response = await fetch(url, {
         credentials: 'include',
@@ -33,7 +56,7 @@ export const api = {
    * POST request with JSON body
    */
   post: async (endpoint, data) => {
-    const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint}`;
+    const url = buildUrl(endpoint);
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -57,7 +80,7 @@ export const api = {
    * POST request with FormData (for file uploads)
    */
   upload: async (endpoint, formData) => {
-    const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint}`;
+    const url = buildUrl(endpoint);
     try {
       const response = await fetch(url, {
         method: 'POST',
