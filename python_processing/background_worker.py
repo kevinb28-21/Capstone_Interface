@@ -21,6 +21,8 @@ from db_utils import (
     set_processing_failed,
     save_analysis,
     get_image_path,
+    get_db_connection,
+    return_db_connection,
     test_connection
 )
 from s3_utils import upload_to_s3, generate_s3_key, download_from_s3
@@ -67,6 +69,7 @@ def repair_image_paths():
     Repair missing file_paths in database for images that exist locally
     This runs once at startup to fix any existing issues
     """
+    conn = None
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
