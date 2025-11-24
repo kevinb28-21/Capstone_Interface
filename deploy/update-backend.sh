@@ -39,12 +39,39 @@ cd Capstone_Interface
 # Step 1: Pull latest changes from GitHub
 echo ""
 echo "Step 1: Pulling latest changes from GitHub..."
+
+# Check if this is a git repository
+if [ ! -d ".git" ]; then
+    print_warning "Not a git repository. Initializing..."
+    
+    # Check if we should clone fresh or initialize
+    if [ -z "$(ls -A)" ] || [ "$(ls -A | wc -l)" -lt 5 ]; then
+        # Directory is empty or nearly empty, clone fresh
+        cd ..
+        if [ -d "Capstone_Interface" ]; then
+            mv Capstone_Interface Capstone_Interface.backup.$(date +%s)
+        fi
+        git clone https://github.com/kevinb28-21/Capstone_Interface.git
+        print_status "Repository cloned from GitHub"
+        cd Capstone_Interface
+    else
+        # Directory has files, initialize git and add remote
+        git init
+        git remote add origin https://github.com/kevinb28-21/Capstone_Interface.git 2>/dev/null || git remote set-url origin https://github.com/kevinb28-21/Capstone_Interface.git
+        git fetch origin
+        git checkout -b main origin/main 2>/dev/null || git checkout main
+        print_status "Git repository initialized and synced"
+    fi
+fi
+
+# Now pull the latest changes
 if git pull origin main; then
     print_status "Code updated from GitHub"
 else
-    print_error "Failed to pull from GitHub"
-    print_warning "Make sure you have git configured and the repository is set up"
-    exit 1
+    print_warning "Failed to pull. Trying to fetch and reset..."
+    git fetch origin
+    git reset --hard origin/main
+    print_status "Code updated from GitHub (hard reset)"
 fi
 
 # Step 2: Update Node.js dependencies
