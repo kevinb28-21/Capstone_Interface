@@ -60,6 +60,41 @@ export async function testConnection() {
 }
 
 /**
+ * Check if a column exists in a table
+ * @param {string} tableName - Name of the table
+ * @param {string} columnName - Name of the column
+ * @returns {Promise<boolean>}
+ */
+async function columnExists(tableName, columnName) {
+  try {
+    const pool = getDbPool();
+    const result = await pool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = $1 AND column_name = $2
+    `, [tableName, columnName]);
+    return result.rows.length > 0;
+  } catch (error) {
+    console.error(`Error checking column ${tableName}.${columnName}:`, error);
+    return false;
+  }
+}
+
+// Cache for column existence checks
+let gndviColumnsExist = null;
+
+/**
+ * Check if GNDVI columns exist (with caching)
+ * @returns {Promise<boolean>}
+ */
+async function hasGndviColumns() {
+  if (gndviColumnsExist === null) {
+    gndviColumnsExist = await columnExists('analyses', 'gndvi_mean');
+  }
+  return gndviColumnsExist;
+}
+
+/**
  * Get all images with GPS and analysis data
  * @param {number} limit - Maximum number of images to return
  * @returns {Promise<Array>}
@@ -67,7 +102,15 @@ export async function testConnection() {
 export async function getAllImages(limit = 100) {
   const pool = getDbPool();
   try {
-    const result = await pool.query(`
+    // Check if GNDVI columns exist
+    const hasGndvi = await hasGndviColumns();
+    
+    // Build query dynamically based on column existence
+    const gndviFields = hasGndvi 
+      ? 'a.gndvi_mean, a.gndvi_std, a.gndvi_min, a.gndvi_max,'
+      : '';
+    
+    const query = `
       SELECT 
         i.id, 
         i.filename, 
@@ -83,7 +126,7 @@ export async function getAllImages(limit = 100) {
         g.altitude,
         a.ndvi_mean, a.ndvi_std, a.ndvi_min, a.ndvi_max,
         a.savi_mean, a.savi_std, a.savi_min, a.savi_max,
-        a.gndvi_mean, a.gndvi_std, a.gndvi_min, a.gndvi_max,
+        ${gndviFields}
         a.health_score,
         a.health_status, 
         a.summary,
@@ -97,7 +140,9 @@ export async function getAllImages(limit = 100) {
       LEFT JOIN analyses a ON i.id = a.image_id
       ORDER BY i.uploaded_at DESC
       LIMIT $1
-    `, [limit]);
+    `;
+    
+    const result = await pool.query(query, [limit]);
     
     return result.rows.map(row => ({
       id: row.id,
@@ -127,7 +172,7 @@ export async function getAllImages(limit = 100) {
           min: row.savi_min ? parseFloat(row.savi_min) : null,
           max: row.savi_max ? parseFloat(row.savi_max) : null
         } : null,
-        gndvi: row.gndvi_mean !== null ? {
+        gndvi: hasGndvi && row.gndvi_mean !== null ? {
           mean: parseFloat(row.gndvi_mean),
           std: row.gndvi_std ? parseFloat(row.gndvi_std) : null,
           min: row.gndvi_min ? parseFloat(row.gndvi_min) : null,
@@ -157,7 +202,15 @@ export async function getAllImages(limit = 100) {
 export async function getImageById(imageId) {
   const pool = getDbPool();
   try {
-    const result = await pool.query(`
+    // Check if GNDVI columns exist
+    const hasGndvi = await hasGndviColumns();
+    
+    // Build query dynamically based on column existence
+    const gndviFields = hasGndvi 
+      ? 'a.gndvi_mean, a.gndvi_std, a.gndvi_min, a.gndvi_max,'
+      : '';
+    
+    const query = `
       SELECT 
         i.*, 
         g.latitude, 
@@ -165,7 +218,7 @@ export async function getImageById(imageId) {
         g.altitude,
         a.ndvi_mean, a.ndvi_std, a.ndvi_min, a.ndvi_max,
         a.savi_mean, a.savi_std, a.savi_min, a.savi_max,
-        a.gndvi_mean, a.gndvi_std, a.gndvi_min, a.gndvi_max,
+        ${gndviFields}
         a.health_score,
         a.health_status, 
         a.summary,
@@ -178,7 +231,9 @@ export async function getImageById(imageId) {
       LEFT JOIN image_gps g ON i.id = g.image_id
       LEFT JOIN analyses a ON i.id = a.image_id
       WHERE i.id = $1
-    `, [imageId]);
+    `;
+    
+    const result = await pool.query(query, [imageId]);
     
     if (result.rows.length === 0) {
       return null;
@@ -214,7 +269,7 @@ export async function getImageById(imageId) {
           min: row.savi_min ? parseFloat(row.savi_min) : null,
           max: row.savi_max ? parseFloat(row.savi_max) : null
         } : null,
-        gndvi: row.gndvi_mean !== null ? {
+        gndvi: hasGndvi && row.gndvi_mean !== null ? {
           mean: parseFloat(row.gndvi_mean),
           std: row.gndvi_std ? parseFloat(row.gndvi_std) : null,
           min: row.gndvi_min ? parseFloat(row.gndvi_min) : null,
