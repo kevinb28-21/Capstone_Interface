@@ -62,6 +62,62 @@ def signal_handler(sig, frame):
     running = False
 
 
+def repair_image_paths():
+    """
+    Repair missing file_paths in database for images that exist locally
+    This runs once at startup to fix any existing issues
+    """
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            # Find images with missing file_path but existing files
+            cur.execute("""
+                SELECT id, filename, s3_stored, file_path
+                FROM images 
+                WHERE (file_path IS NULL OR file_path = '')
+                AND processing_status IN ('uploaded', 'failed')
+                AND filename IS NOT NULL
+            """)
+            
+            repaired = 0
+            for row in cur.fetchall():
+                image_id, filename, s3_stored, existing_path = row
+                
+                # Try to find the file
+                test_record = {
+                    'id': image_id,
+                    'filename': filename,
+                    's3_stored': s3_stored,
+                    'file_path': existing_path
+                }
+                
+                file_path = get_image_path(test_record)
+                if file_path and os.path.exists(file_path):
+                    # Update database
+                    try:
+                        cur.execute("""
+                            UPDATE images 
+                            SET file_path = %s, s3_stored = false 
+                            WHERE id = %s
+                        """, (file_path, image_id))
+                        repaired += 1
+                        logger.info(f"Repaired file_path for image {image_id}: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to update path for {image_id}: {e}")
+            
+            conn.commit()
+            if repaired > 0:
+                logger.info(f"✓ Repaired {repaired} image file path(s)")
+            else:
+                logger.info("✓ No image paths needed repair")
+        
+        return_db_connection(conn)
+    except Exception as e:
+        logger.error(f"Error repairing image paths: {e}", exc_info=True)
+        if conn:
+            return_db_connection(conn)
+
+
 def download_image_if_needed(image_record: dict) -> str:
     """
     Get local file path for image, downloading from S3 if needed
