@@ -1,5 +1,35 @@
 # EC2 Deployment Guide
 
+## Quick Fixes
+
+### Fix Processing Issues on EC2
+
+If you're experiencing image processing failures on EC2, use the automated fix script:
+
+**From your local machine:**
+```bash
+./deploy/deploy-processing-fixes.sh
+```
+
+**Or directly on EC2:**
+```bash
+cd ~/Capstone_Interface
+git pull origin main
+./deploy/fix-ec2-processing.sh
+```
+
+This script will:
+- ✅ Check/create `.env` file with proper configuration
+- ✅ Fix database file paths for failed images
+- ✅ Restart PM2 services
+- ✅ Verify the fixes are working
+
+### Common Processing Issues Fixed
+
+1. **Numpy Type Errors**: Fixed by registering psycopg2 adapters for numpy types
+2. **File Not Found Errors**: Fixed by correcting upload directory paths
+3. **Database Connection Errors**: Fixed by ensuring `.env` file exists with correct credentials
+
 This directory contains automated deployment scripts for setting up the Drone Crop Health Platform on AWS EC2.
 
 ## Quick Start
