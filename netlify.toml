@@ -3,12 +3,13 @@
 # So publish path should be relative to base directory (client/), not repo root
 [build]
   base = "client"
-  command = "npm install && npm run build"
+  command = "npm ci && npm run build"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
   NPM_FLAGS = "--legacy-peer-deps"
+  CI = "true"
 
 # Redirect API calls to backend
 [[redirects]]
