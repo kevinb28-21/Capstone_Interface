@@ -14,14 +14,14 @@
 # Redirect API calls to backend
 [[redirects]]
   from = "/api/*"
-  to = "http://ec2-18-223-169-5.us-east-2.compute.amazonaws.com/api/:splat"
+  to = "http://ec2-18-117-90-212.us-east-2.compute.amazonaws.com/api/:splat"
   status = 200
   force = true
 
 # Redirect uploads to backend
 [[redirects]]
   from = "/uploads/*"
-  to = "http://ec2-18-223-169-5.us-east-2.compute.amazonaws.com/uploads/:splat"
+  to = "http://ec2-18-117-90-212.us-east-2.compute.amazonaws.com/uploads/:splat"
   status = 200
   force = true
 
