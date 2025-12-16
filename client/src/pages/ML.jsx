@@ -8,10 +8,40 @@ export default function MLPage() {
   const selectedImage = images.find(i => i.id === selectedImageId) || images[0];
 
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:10',message:'useEffect mounted',data:{hidden:document.hidden,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
+    
     let mounted = true;
+    let intervalId = null;
+    let isFetching = false;
+    
     const load = async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:16',message:'load called',data:{hidden:document.hidden,mounted,selectedImageId,isFetching},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      
+      // Skip if tab is hidden, already fetching, or unmounted
+      if (document.hidden || isFetching || !mounted) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:20',message:'load skipped',data:{hidden:document.hidden,isFetching,mounted},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        return;
+      }
+      
+      isFetching = true;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:24',message:'load starting API call',data:{mounted,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      
       try {
-        const imgs = await api.get('/api/images');
+        const imgs = await api.get('/api/images').catch((e) => {
+          console.error('Failed to fetch images:', e);
+          return [];
+        });
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:30',message:'load success',data:{imagesCount:imgs?.length||0,mounted,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         if (mounted) {
           setImages(imgs.filter(img => img.analysis && img.processingStatus === 'completed'));
           if (imgs.length > 0 && !selectedImageId) {
@@ -19,11 +49,72 @@ export default function MLPage() {
             if (firstWithML) setSelectedImageId(firstWithML.id);
           }
         }
-      } catch {}
+      } catch (e) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:38',message:'load error',data:{error:e?.message||'unknown',mounted,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        console.error('Error loading images:', e);
+      } finally {
+        isFetching = false;
+      }
     };
+    
+    // Initial load
     load();
-    const id = setInterval(load, 5000);
-    return () => { mounted = false; clearInterval(id); };
+    
+    // Poll every 30 seconds (reduced from 5 seconds to save Netlify bandwidth)
+    const startPolling = () => {
+      if (!document.hidden && !intervalId && mounted) {
+        intervalId = setInterval(() => {
+          if (!document.hidden && mounted) {
+            load();
+          }
+        }, 30000);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:54',message:'interval created',data:{intervalId,intervalMs:30000,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+      }
+    };
+    
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:62',message:'interval cleared',data:{intervalId,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+        intervalId = null;
+      }
+    };
+    
+    // Start polling if tab is visible
+    startPolling();
+    
+    // Refresh immediately when tab becomes visible, and manage polling
+    const handleVisibilityChange = () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:70',message:'visibility change',data:{hidden:document.hidden},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:76',message:'visibility change - calling load',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        load();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => { 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:84',message:'useEffect cleanup',data:{intervalId,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+      mounted = false; 
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [selectedImageId]);
 
   // Get model statistics from images

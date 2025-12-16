@@ -6,19 +6,113 @@ export default function HomePage() {
   const [telemetry, setTelemetry] = useState(null);
 
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:8',message:'useEffect mounted',data:{hidden:document.hidden},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    
+    let intervalId = null;
+    let isFetching = false;
+    
     const fetchData = async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:12',message:'fetchData called',data:{hidden:document.hidden,isFetching},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      
+      // Skip if tab is hidden or already fetching
+      if (document.hidden || isFetching) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:15',message:'fetchData skipped',data:{hidden:document.hidden,isFetching},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        return;
+      }
+      
+      isFetching = true;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:19',message:'fetchData starting API calls',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      
       try {
         const [imgs, tel] = await Promise.all([
-          api.get('/api/images').catch(() => []),
-          api.get('/api/telemetry').catch(() => null)
+          api.get('/api/images').catch((e) => {
+            console.error('Failed to fetch images:', e);
+            return [];
+          }),
+          api.get('/api/telemetry').catch((e) => {
+            console.error('Failed to fetch telemetry:', e);
+            return null;
+          })
         ]);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:28',message:'fetchData success',data:{imagesCount:imgs?.length||0,hasTelemetry:!!tel},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         setImages(imgs);
         setTelemetry(tel);
-      } catch (e) {}
+      } catch (e) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:32',message:'fetchData error',data:{error:e?.message||'unknown'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        console.error('Error fetching data:', e);
+      } finally {
+        isFetching = false;
+      }
     };
+    
+    // Initial fetch
     fetchData();
-    const id = setInterval(fetchData, 5000);
-    return () => clearInterval(id);
+    
+    // Poll every 30 seconds (reduced from 5 seconds to save Netlify bandwidth)
+    // Only create interval if tab is visible
+    const startPolling = () => {
+      if (!document.hidden && !intervalId) {
+        intervalId = setInterval(() => {
+          if (!document.hidden) {
+            fetchData();
+          }
+        }, 30000);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:47',message:'interval created',data:{intervalId,intervalMs:30000},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+      }
+    };
+    
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:54',message:'interval cleared',data:{intervalId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        intervalId = null;
+      }
+    };
+    
+    // Start polling if tab is visible
+    startPolling();
+    
+    // Refresh immediately when tab becomes visible, and manage polling
+    const handleVisibilityChange = () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:62',message:'visibility change',data:{hidden:document.hidden},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:68',message:'visibility change - calling fetchData',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        fetchData();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:75',message:'useEffect cleanup',data:{intervalId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   const processedImages = images.filter(img => img.processingStatus === 'completed' && img.analysis);
