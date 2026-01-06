@@ -41,9 +41,13 @@ export default function MapPage() {
           return null;
         });
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Map.jsx:28',message:'fetchTel success',data:{hasTelemetry:!!tel,mounted},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Map.jsx:38',message:'Telemetry response received',data:{hasTelemetry:!!tel,telemetryKeys:tel?Object.keys(tel):[],hasPosition:!!tel?.position,hasRoute:Array.isArray(tel?.route),hasGeofence:Array.isArray(tel?.geofence),routeLength:tel?.route?.length||0,geofenceLength:tel?.geofence?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'D'})}).catch(()=>{});
         // #endregion
-        if (mounted) setTelemetry(tel);
+        const telemetryData = tel || { position: null, route: [], geofence: [] };
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Map.jsx:44',message:'Setting telemetry',data:{hasPosition:!!telemetryData.position,routeLength:telemetryData.route?.length||0,geofenceLength:telemetryData.geofence?.length||0,mounted},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        if (mounted) setTelemetry(telemetryData);
       } catch (e) {
         // #region agent log
         fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Map.jsx:32',message:'fetchTel error',data:{error:e?.message||'unknown',mounted},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'E'})}).catch(()=>{});

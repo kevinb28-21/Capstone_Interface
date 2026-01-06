@@ -79,3 +79,6 @@ echo "To fix issues, run:"
 echo "  bash ~/Capstone_Interface/deploy/fix-502-bad-gateway.sh"
 echo ""
 
+
+
+

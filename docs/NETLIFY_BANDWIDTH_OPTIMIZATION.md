@@ -92,3 +92,4 @@ After redeploy, check browser Network tab:
 - Your EC2 backend must allow CORS from your Netlify domain
 - The API utility (`client/src/utils/api.js`) already supports `VITE_API_URL`
 
+

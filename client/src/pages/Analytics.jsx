@@ -3,7 +3,7 @@ import UploadPanel from '../components/UploadPanel.jsx';
 import ProcessingStatus from '../components/ProcessingStatus.jsx';
 import VegetationIndexMaps from '../components/VegetationIndexMaps.jsx';
 import MLExplanation from '../components/MLExplanation.jsx';
-import { api } from '../utils/api.js';
+import { api, buildImageUrl, formatDate } from '../utils/api.js';
 
 export default function AnalyticsPage() {
   const [images, setImages] = useState([]);
@@ -39,12 +39,16 @@ export default function AnalyticsPage() {
       // #endregion
       
       try {
-        const imgs = await api.get('/api/images').catch((e) => {
+        const response = await api.get('/api/images').catch((e) => {
           console.error('Failed to fetch images:', e);
           return [];
         });
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Analytics.jsx:31',message:'load success',data:{imagesCount:imgs?.length||0,mounted},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Analytics.jsx:41',message:'API response received',data:{responseType:Array.isArray(response)?'array':typeof response,responseKeys:response&&!Array.isArray(response)?Object.keys(response):[],imagesCount:Array.isArray(response)?response.length:(response?.images?.length||0),firstImage:Array.isArray(response)?response[0]?{id:response[0].id,hasAnalysis:!!response[0].analysis}:null:null},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        const imgs = Array.isArray(response) ? response : (response?.images || []);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Analytics.jsx:45',message:'load success',data:{imagesCount:imgs.length,mounted},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         if (mounted) setImages(imgs);
       } catch (e) {
@@ -157,7 +161,7 @@ export default function AnalyticsPage() {
                 >
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 1 }}>
                     <img 
-                      src={img.s3Url || img.path} 
+                      src={buildImageUrl(img) || '/placeholder.png'} 
                       alt={img.originalName} 
                       style={{ 
                         width: 56, 
@@ -167,9 +171,10 @@ export default function AnalyticsPage() {
                         border: '1px solid #e5e7eb' 
                       }} 
                       onError={(e) => {
-                        if (img.s3Url && img.path) {
-                          e.target.src = img.path;
-                        }
+                        // #region agent log
+                        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Analytics.jsx:163',message:'Image load error',data:{imageId:img.id,builtUrl:buildImageUrl(img)},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'B'})}).catch(()=>{});
+                        // #endregion
+                        e.target.style.display = 'none';
                       }}
                     />
                     <div style={{ flex: 1 }}>
@@ -177,7 +182,7 @@ export default function AnalyticsPage() {
                         {img.originalName || img.filename}
                       </div>
                       <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                        {new Date(img.createdAt).toLocaleString()}
+                        {formatDate(img.createdAt, 'datetime')}
                       </div>
                       {img.processingStatus && (
                         <div style={{ 
@@ -201,7 +206,7 @@ export default function AnalyticsPage() {
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     {img?.analysis?.ndvi?.mean !== undefined && (
                       <span className="badge">
-                        NDVI {img.analysis.ndvi.mean.toFixed(2)}
+                        NDVI {img.analysis?.ndvi?.mean?.toFixed(2) || 'N/A'}
                       </span>
                     )}
                   </div>
@@ -324,10 +329,10 @@ export default function AnalyticsPage() {
                         )}
                       </div>
 
-                      {(selectedImage.s3Url || selectedImage.path) && (
+                      {buildImageUrl(selectedImage) && (
                         <div style={{ marginBottom: 20 }}>
                           <img 
-                            src={selectedImage.s3Url || selectedImage.path} 
+                            src={buildImageUrl(selectedImage)} 
                             alt={selectedImage.originalName}
                             style={{ 
                               width: '100%', 
@@ -335,9 +340,10 @@ export default function AnalyticsPage() {
                               border: '1px solid #e5e7eb'
                             }} 
                             onError={(e) => {
-                              if (selectedImage.s3Url && selectedImage.path) {
-                                e.target.src = selectedImage.path;
-                              }
+                              // #region agent log
+                              fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Analytics.jsx:330',message:'Selected image load error',data:{imageId:selectedImage.id,builtUrl:buildImageUrl(selectedImage)},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'B'})}).catch(()=>{});
+                              // #endregion
+                              e.target.style.display = 'none';
                             }}
                           />
                         </div>
@@ -369,9 +375,9 @@ export default function AnalyticsPage() {
 
               {activeTab === 'indices' && selectedImage.analysis && (
                 <div>
-                  {(selectedImage.s3Url || selectedImage.path) && (
+                  {buildImageUrl(selectedImage) && (
                     <VegetationIndexMaps
-                      imageUrl={selectedImage.s3Url || selectedImage.path}
+                      imageUrl={buildImageUrl(selectedImage)}
                       analysis={selectedImage.analysis}
                     />
                   )}
@@ -402,10 +408,10 @@ export default function AnalyticsPage() {
                     <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.8 }}>
                       <div>Status: <strong>{selectedImage.processingStatus || 'uploaded'}</strong></div>
                       {selectedImage.createdAt && (
-                        <div>Uploaded: {new Date(selectedImage.createdAt).toLocaleString()}</div>
+                        <div>Uploaded: {formatDate(selectedImage.createdAt, 'datetime')}</div>
                       )}
                       {selectedImage.processedAt && (
-                        <div>Processed: {new Date(selectedImage.processedAt).toLocaleString()}</div>
+                        <div>Processed: {formatDate(selectedImage.processedAt, 'datetime')}</div>
                       )}
                       {selectedImage.analysis?.analysisType && (
                         <div>Analysis Type: {selectedImage.analysis.analysisType}</div>

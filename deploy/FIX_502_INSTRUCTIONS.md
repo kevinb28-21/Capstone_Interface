@@ -220,3 +220,6 @@ However, you should still secure your EC2:
 - Use HTTPS/SSL for production
 - Don't expose database ports publicly
 
+
+
+

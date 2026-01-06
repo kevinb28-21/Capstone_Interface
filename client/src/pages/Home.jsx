@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../utils/api.js';
+import { api, buildImageUrl, formatDate } from '../utils/api.js';
 
 export default function HomePage() {
   const [images, setImages] = useState([]);
@@ -43,9 +43,13 @@ export default function HomePage() {
           })
         ]);
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:28',message:'fetchData success',data:{imagesCount:imgs?.length||0,hasTelemetry:!!tel},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:34',message:'API response received',data:{imagesType:Array.isArray(imgs)?'array':typeof imgs,imagesCount:Array.isArray(imgs)?imgs.length:0,firstImage:imgs?.[0]?{id:imgs[0].id,hasPath:!!imgs[0].path,hasS3Url:!!imgs[0].s3Url,hasAnalysis:!!imgs[0].analysis}:null,telemetryType:typeof tel,hasTelemetry:!!tel},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'A'})}).catch(()=>{});
         // #endregion
-        setImages(imgs);
+        const imagesArray = Array.isArray(imgs) ? imgs : (imgs?.images || []);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:48',message:'Setting state',data:{imagesCount:imagesArray.length,telemetrySet:!!tel},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        setImages(imagesArray);
         setTelemetry(tel);
       } catch (e) {
         // #region agent log
@@ -115,6 +119,12 @@ export default function HomePage() {
     };
   }, []);
 
+  // #region agent log
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:118',message:'Processing images',data:{totalImages:images.length,imagesWithStatus:images.filter(img=>img.processingStatus).length,imagesWithAnalysis:images.filter(img=>img.analysis).length},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'C'})}).catch(()=>{});
+  }, [images]);
+  // #endregion
+  
   const processedImages = images.filter(img => img.processingStatus === 'completed' && img.analysis);
   const avgNDVI = processedImages.length > 0
     ? (processedImages.reduce((sum, img) => sum + (img?.analysis?.ndvi?.mean || 0), 0) / processedImages.length).toFixed(3)
@@ -138,8 +148,13 @@ export default function HomePage() {
   // Count images processed today
   const today = new Date().toDateString();
   const imagesToday = images.filter(img => {
-    const imgDate = new Date(img.createdAt).toDateString();
-    return imgDate === today && img.processingStatus === 'completed';
+    if (!img.createdAt) return false;
+    try {
+      const imgDate = new Date(img.createdAt).toDateString();
+      return imgDate === today && img.processingStatus === 'completed';
+    } catch (e) {
+      return false;
+    }
   }).length;
 
   return (
@@ -225,7 +240,7 @@ export default function HomePage() {
                 <div key={img.id} className="list-item" style={{ cursor: 'default' }}>
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 1 }}>
                     <img 
-                      src={img.s3Url || img.path} 
+                      src={buildImageUrl(img) || '/placeholder.png'} 
                       alt="" 
                       style={{ 
                         width: 40, 
@@ -235,16 +250,21 @@ export default function HomePage() {
                         border: '1px solid #e5e7eb' 
                       }} 
                       onError={(e) => {
-                        // Fallback to path if S3 URL fails
-                        if (img.s3Url && img.path) {
-                          e.target.src = img.path;
-                        }
+                        // #region agent log
+                        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:237',message:'Image load error',data:{imageId:img.id,s3Url:img.s3Url,path:img.path,builtUrl:buildImageUrl(img)},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'B'})}).catch(()=>{});
+                        // #endregion
+                        e.target.style.display = 'none';
+                      }}
+                      onLoad={() => {
+                        // #region agent log
+                        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Home.jsx:244',message:'Image loaded successfully',data:{imageId:img.id},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'B'})}).catch(()=>{});
+                        // #endregion
                       }}
                     />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 500 }}>{img.originalName || img.filename}</div>
                       <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                        {new Date(img.createdAt).toLocaleDateString()}
+                        {formatDate(img.createdAt, 'date')}
                       </div>
                     </div>
                   </div>
@@ -267,7 +287,7 @@ export default function HomePage() {
                     )}
                     {img?.analysis?.ndvi?.mean !== undefined && (
                       <span className="badge" style={{ fontSize: 11 }}>
-                        NDVI {img.analysis.ndvi.mean.toFixed(2)}
+                        NDVI {img.analysis?.ndvi?.mean?.toFixed(2) || 'N/A'}
                       </span>
                     )}
                   </div>

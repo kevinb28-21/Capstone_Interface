@@ -351,3 +351,6 @@ echo "  - Database connection: psql -U drone_user -d drone_analytics -c 'SELECT 
 echo "  - .env file: cat ~/Capstone_Interface/server/.env"
 echo ""
 
+
+
+

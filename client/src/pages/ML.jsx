@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ModelTraining from '../components/ModelTraining.jsx';
-import { api } from '../utils/api.js';
+import { api, buildImageUrl } from '../utils/api.js';
 
 export default function MLPage() {
   const [images, setImages] = useState([]);
@@ -35,15 +35,23 @@ export default function MLPage() {
       // #endregion
       
       try {
-        const imgs = await api.get('/api/images').catch((e) => {
+        const response = await api.get('/api/images').catch((e) => {
           console.error('Failed to fetch images:', e);
           return [];
         });
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:30',message:'load success',data:{imagesCount:imgs?.length||0,mounted,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:37',message:'API response received',data:{responseType:Array.isArray(response)?'array':typeof response,imagesCount:Array.isArray(response)?response.length:(response?.images?.length||0)},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        const imgs = Array.isArray(response) ? response : (response?.images || []);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:41',message:'Filtering images',data:{totalImages:imgs.length,withAnalysis:imgs.filter(img=>img.analysis).length,completed:imgs.filter(img=>img.processingStatus==='completed').length,withML:imgs.filter(img=>img.analysis?.confidence).length},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
         if (mounted) {
-          setImages(imgs.filter(img => img.analysis && img.processingStatus === 'completed'));
+          const filtered = imgs.filter(img => img.analysis && img.processingStatus === 'completed');
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:45',message:'Setting filtered images',data:{filteredCount:filtered.length,selectedImageId},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          setImages(filtered);
           if (imgs.length > 0 && !selectedImageId) {
             const firstWithML = imgs.find(img => img.analysis?.confidence);
             if (firstWithML) setSelectedImageId(firstWithML.id);
@@ -128,8 +136,10 @@ export default function MLPage() {
     // Count predictions by category
     const categoryCounts = {};
     mlImages.forEach(img => {
-      const category = img.analysis.healthStatus;
-      categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+      const category = img.analysis?.healthStatus;
+      if (category) {
+        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+      }
     });
 
     return {
@@ -263,7 +273,7 @@ export default function MLPage() {
                   >
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 1 }}>
                       <img
-                        src={img.s3Url || img.path}
+                        src={buildImageUrl(img) || '/placeholder.png'}
                         alt={img.originalName}
                         style={{
                           width: 56,
@@ -273,9 +283,10 @@ export default function MLPage() {
                           border: '1px solid #e5e7eb'
                         }}
                         onError={(e) => {
-                          if (img.s3Url && img.path) {
-                            e.target.src = img.path;
-                          }
+                          // #region agent log
+                          fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:274',message:'Image load error',data:{imageId:img.id,builtUrl:buildImageUrl(img)},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'B'})}).catch(()=>{});
+                          // #endregion
+                          e.target.style.display = 'none';
                         }}
                       />
                       <div style={{ flex: 1 }}>
@@ -283,12 +294,12 @@ export default function MLPage() {
                           {img.originalName || img.filename}
                         </div>
                         <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                          {img.analysis.healthStatus && (
+                          {img.analysis?.healthStatus && (
                             <span style={{ textTransform: 'capitalize' }}>
                               {img.analysis.healthStatus.replace('_', ' ')}
                             </span>
                           )}
-                          {img.analysis.confidence && (
+                          {img.analysis?.confidence && (
                             <span style={{ marginLeft: 8 }}>
                               ({(img.analysis.confidence * 100).toFixed(0)}% confidence)
                             </span>
@@ -296,7 +307,7 @@ export default function MLPage() {
                         </div>
                       </div>
                     </div>
-                    {img.analysis.confidence && (
+                    {img.analysis?.confidence && (
                       <div style={{
                         padding: '4px 12px',
                         borderRadius: 12,
@@ -327,23 +338,26 @@ export default function MLPage() {
         {selectedImage && selectedImage.analysis && (
           <div className="card">
             <div className="section-title">Selected Image Analysis</div>
-            <div style={{ marginBottom: 16 }}>
-              <img
-                src={selectedImage.s3Url || selectedImage.path}
-                alt={selectedImage.originalName}
-                style={{
-                  width: '100%',
-                  borderRadius: 8,
-                  border: '1px solid #e5e7eb',
-                  marginBottom: 16
-                }}
-                onError={(e) => {
-                  if (selectedImage.s3Url && selectedImage.path) {
-                    e.target.src = selectedImage.path;
-                  }
-                }}
-              />
-            </div>
+            {buildImageUrl(selectedImage) && (
+              <div style={{ marginBottom: 16 }}>
+                <img
+                  src={buildImageUrl(selectedImage)}
+                  alt={selectedImage.originalName}
+                  style={{
+                    width: '100%',
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    marginBottom: 16
+                  }}
+                  onError={(e) => {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/d3c584d3-d2e8-4033-b813-a5c38caf839a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ML.jsx:340',message:'Selected image load error',data:{imageId:selectedImage.id,builtUrl:buildImageUrl(selectedImage)},timestamp:Date.now(),sessionId:'debug-session',runId:'website-fix',hypothesisId:'B'})}).catch(()=>{});
+                    // #endregion
+                    e.target.style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
 
             {selectedImage.analysis.confidence && (
               <div style={{

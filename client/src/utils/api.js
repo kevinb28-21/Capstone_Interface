@@ -102,3 +102,70 @@ export const api = {
 // Export API URL for direct use if needed
 export { API_URL };
 
+/**
+ * Build proper image URL from path or S3 URL
+ * Handles both relative paths (/uploads/file.jpg) and full URLs
+ */
+export const buildImageUrl = (image) => {
+  if (!image) return null;
+  
+  // Prefer S3 URL if available
+  if (image.s3Url) {
+    return image.s3Url;
+  }
+  
+  // If path is provided, check if it's already a full URL
+  if (image.path) {
+    if (image.path.startsWith('http://') || image.path.startsWith('https://')) {
+      return image.path;
+    }
+    
+    // If path starts with /uploads, it's a relative path - construct full URL
+    if (image.path.startsWith('/uploads/')) {
+      if (API_URL) {
+        return `${API_URL.replace(/\/$/, '')}${image.path}`;
+      }
+      // In production with Netlify, use relative path (Netlify will proxy it)
+      return image.path;
+    }
+    
+    // If path doesn't start with /, it might be a local filesystem path
+    // Try to construct a proper URL
+    if (!image.path.startsWith('/')) {
+      // Assume it's a filename and should be in /uploads/
+      const filename = image.path.split('/').pop() || image.path;
+      if (API_URL) {
+        return `${API_URL.replace(/\/$/, '')}/uploads/${filename}`;
+      }
+      return `/uploads/${filename}`;
+    }
+    
+    // Otherwise return as-is (might be a relative path)
+    return image.path;
+  }
+  
+  return null;
+};
+
+/**
+ * Safely parse and format a date
+ * Returns formatted string or fallback
+ */
+export const formatDate = (dateValue, format = 'date') => {
+  if (!dateValue) return 'Unknown date';
+  
+  try {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) {
+      return 'Invalid date';
+    }
+    
+    if (format === 'datetime' || format === 'string') {
+      return date.toLocaleString();
+    }
+    return date.toLocaleDateString();
+  } catch (e) {
+    return 'Invalid date';
+  }
+};
+
