@@ -1,85 +1,121 @@
 """
-Image Processing Module for Onion Crop Health Analysis
-Performs NDVI, SAVI, and GNDVI calculation and crop health analysis using OpenCV and TensorFlow.
-Optimized for onion (Allium cepa) crop monitoring.
+Image Processing Module for Multi-Crop Plant Health Analysis
+Performs NDVI, SAVI, and GNDVI calculation from true spectral bands.
+Supports RGB and multispectral inputs with band-aware processing.
 """
 import cv2
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Import multispectral loader
+try:
+    from multispectral_loader import load_multispectral_image, detect_band_schema, create_band_mask
+    HAS_MULTISPECTRAL = True
+except ImportError:
+    HAS_MULTISPECTRAL = False
+    logger.warning("multispectral_loader not available, using RGB-only mode")
 
 
-def calculate_ndvi(image_path: str) -> Dict:
+def calculate_ndvi(image_path: str, band_schema: Optional[Dict] = None, 
+                   image_array: Optional[np.ndarray] = None) -> Dict:
     """
-    Calculate NDVI (Normalized Difference Vegetation Index) from an RGB image.
+    Calculate NDVI (Normalized Difference Vegetation Index) from true spectral bands.
     
-    For RGB images (non-multispectral), this uses a pseudo-NDVI approximation
-    based on Red and Green channels. For true NDVI, use NIR band if available.
+    For RGB images: Returns None or error (NDVI requires NIR).
+    For multispectral images: Uses true NIR band.
     
     Args:
-        image_path: Path to the input image file
+        image_path: Path to the input image file (if image_array not provided)
+        band_schema: Optional band schema dictionary with band order
+        image_array: Optional pre-loaded image array (H, W, C)
         
     Returns:
-        Dictionary with NDVI statistics and processed image data
+        Dictionary with NDVI statistics, or None if NIR not available
     """
-    # Read image
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Could not read image: {image_path}")
+    # Load image if not provided
+    if image_array is None:
+        if HAS_MULTISPECTRAL:
+            image_array, detected_schema = load_multispectral_image(
+                image_path, target_size=None, dataset_name=None
+            )
+            if band_schema is None:
+                band_schema = detected_schema
+        else:
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Could not read image: {image_path}")
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            image_array = img_rgb.astype(np.float32) / 255.0
+            if band_schema is None:
+                band_schema = {'bands': ['R', 'G', 'B'], 'band_order': ['R', 'G', 'B']}
     
-    # Convert BGR to RGB (OpenCV uses BGR by default)
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # Get band indices
+    band_order = band_schema.get('band_order', ['R', 'G', 'B'])
     
-    # Extract channels
-    red = img_rgb[:, :, 0].astype(np.float32)
-    green = img_rgb[:, :, 1].astype(np.float32)
-    blue = img_rgb[:, :, 2].astype(np.float32)
+    # Check if required bands (R and NIR) are available
+    if 'NIR' not in band_order:
+        logger.warning("NDVI calculation requires NIR band, which is not available")
+        return {
+            'ndvi_mean': None,
+            'ndvi_std': None,
+            'ndvi_min': None,
+            'ndvi_max': None,
+            'error': 'NIR band not available',
+            'band_schema': band_schema
+        }
     
-    # Pseudo-NDVI approximation for RGB images
-    # Using formula: (NIR - Red) / (NIR + Red)
-    # Approximate NIR as: (2 * Green) - Red (common approximation)
-    # Alternative: use Green channel as proxy
-    nir_approx = (2.0 * green) - red
-    nir_approx = np.clip(nir_approx, 0, 255)
+    if 'R' not in band_order:
+        logger.warning("NDVI calculation requires R band, which is not available")
+        return {
+            'ndvi_mean': None,
+            'ndvi_std': None,
+            'ndvi_min': None,
+            'ndvi_max': None,
+            'error': 'R band not available',
+            'band_schema': band_schema
+        }
     
-    # Calculate NDVI
-    denominator = red + nir_approx + 1e-7  # Avoid division by zero
-    ndvi = (nir_approx - red) / denominator
+    # Extract bands
+    try:
+        red_idx = band_order.index('R')
+        nir_idx = band_order.index('NIR')
+    except ValueError:
+        logger.warning(f"Required bands (R, NIR) not found in band_order: {band_order}")
+        return {
+            'ndvi_mean': None,
+            'ndvi_std': None,
+            'ndvi_min': None,
+            'ndvi_max': None,
+            'error': 'Required bands not found',
+            'band_schema': band_schema
+        }
     
-    # Normalize to 0-1 range
+    # Extract red and NIR bands
+    red = image_array[:, :, red_idx].astype(np.float32)
+    nir = image_array[:, :, nir_idx].astype(np.float32)
+    
+    # Normalize if needed (assuming [0, 1] range)
+    if np.max(red) > 1.0 or np.max(nir) > 1.0:
+        red = red / 255.0
+        nir = nir / 255.0
+    
+    # Calculate NDVI: (NIR - Red) / (NIR + Red)
+    denominator = red + nir + 1e-7  # Avoid division by zero
+    ndvi = (nir - red) / denominator
+    
+    # Clip NDVI to valid range [-1, 1]
     ndvi = np.clip(ndvi, -1, 1)
-    ndvi_normalized = (ndvi + 1) / 2.0  # Scale to 0-1 for visualization
     
     # Calculate statistics
     mean_ndvi = float(np.mean(ndvi))
     std_ndvi = float(np.std(ndvi))
     min_ndvi = float(np.min(ndvi))
     max_ndvi = float(np.max(ndvi))
-    
-    # Onion-specific health classification based on NDVI
-    # NDVI ranges: -1 to 1, typically vegetation is 0.2-0.8
-    # Onion-specific thresholds optimized for Allium cepa
-    if mean_ndvi < 0.2:
-        health_status = "Very Poor"
-        summary = "Critical attention needed - Onion crop severely stressed, brown/yellow foliage, sparse canopy"
-    elif mean_ndvi < 0.4:
-        health_status = "Poor"
-        summary = "Attention needed - Onion crop showing stress, yellowing foliage, reduced canopy coverage"
-    elif mean_ndvi < 0.6:
-        health_status = "Moderate"
-        summary = "Moderate health - Onion crop with light green foliage, some stress indicators present"
-    elif mean_ndvi < 0.8:
-        health_status = "Healthy"
-        summary = "Healthy - Onion crop with green foliage, good canopy coverage, normal growing conditions"
-    else:
-        health_status = "Very Healthy"
-        summary = "Very healthy - Onion crop with dark green vigorous foliage, optimal growing conditions"
-    
-    # Identify stress zones (low NDVI regions)
-    stress_threshold = mean_ndvi - std_ndvi
-    stress_mask = ndvi < stress_threshold
-    stress_coords = np.where(stress_mask)
     
     # Generate stress zones grid (10x10 for visualization)
     h, w = ndvi.shape
@@ -106,67 +142,111 @@ def calculate_ndvi(image_path: str) -> Dict:
                     'ndvi': round(cell_mean, 3)
                 })
     
-    # Create NDVI visualization (color-coded)
-    ndvi_visual = np.zeros((h, w, 3), dtype=np.uint8)
-    # Color mapping: red (low) -> yellow -> green (high)
-    ndvi_scaled = (ndvi_normalized * 255).astype(np.uint8)
-    ndvi_visual[:, :, 0] = np.clip(255 - ndvi_scaled, 0, 255)  # Red channel
-    ndvi_visual[:, :, 1] = ndvi_scaled  # Green channel
-    ndvi_visual[:, :, 2] = np.clip(255 - ndvi_scaled * 0.5, 0, 255)  # Blue channel
-    
     return {
         'ndvi_mean': round(mean_ndvi, 3),
         'ndvi_std': round(std_ndvi, 3),
         'ndvi_min': round(min_ndvi, 3),
         'ndvi_max': round(max_ndvi, 3),
-        'health_status': health_status,
-        'summary': summary,
         'stress_zones': stress_zones,
         'ndvi_map_shape': list(ndvi.shape),
-        'stress_count': len(stress_zones)
+        'stress_count': len(stress_zones),
+        'band_schema': band_schema
     }
 
 
-def calculate_gndvi(image_path: str) -> Dict:
+def calculate_gndvi(image_path: str, band_schema: Optional[Dict] = None,
+                    image_array: Optional[np.ndarray] = None) -> Dict:
     """
-    Calculate GNDVI (Green Normalized Difference Vegetation Index) from an RGB image.
+    Calculate GNDVI (Green Normalized Difference Vegetation Index) from true spectral bands.
     
     GNDVI = (NIR - Green) / (NIR + Green)
     
     GNDVI is particularly useful for early growth stages and is less sensitive to
     atmospheric conditions. Good for onion crops during early development.
     
-    For RGB images, approximates NIR similar to NDVI calculation.
+    Requires NIR band - returns None for RGB-only images.
     
     Args:
-        image_path: Path to the input image file
+        image_path: Path to the input image file (if image_array not provided)
+        band_schema: Optional band schema dictionary
+        image_array: Optional pre-loaded image array
         
     Returns:
-        Dictionary with GNDVI statistics
+        Dictionary with GNDVI statistics, or None if NIR not available
     """
-    # Read image
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Could not read image: {image_path}")
+    # Load image if not provided
+    if image_array is None:
+        if HAS_MULTISPECTRAL:
+            image_array, detected_schema = load_multispectral_image(
+                image_path, target_size=None, dataset_name=None
+            )
+            if band_schema is None:
+                band_schema = detected_schema
+        else:
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Could not read image: {image_path}")
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            image_array = img_rgb.astype(np.float32) / 255.0
+            if band_schema is None:
+                band_schema = {'bands': ['R', 'G', 'B'], 'band_order': ['R', 'G', 'B']}
     
-    # Convert BGR to RGB
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # Get band indices
+    band_order = band_schema.get('band_order', ['R', 'G', 'B'])
     
-    # Extract channels
-    red = img_rgb[:, :, 0].astype(np.float32)
-    green = img_rgb[:, :, 1].astype(np.float32)
+    # Check if required bands (G and NIR) are available
+    if 'NIR' not in band_order:
+        logger.warning("GNDVI calculation requires NIR band, which is not available")
+        return {
+            'gndvi_mean': None,
+            'gndvi_std': None,
+            'gndvi_min': None,
+            'gndvi_max': None,
+            'error': 'NIR band not available',
+            'band_schema': band_schema
+        }
     
-    # Approximate NIR (same as NDVI)
-    nir_approx = (2.0 * green) - red
-    nir_approx = np.clip(nir_approx, 0, 255)
+    if 'G' not in band_order:
+        logger.warning("GNDVI calculation requires G band, which is not available")
+        return {
+            'gndvi_mean': None,
+            'gndvi_std': None,
+            'gndvi_min': None,
+            'gndvi_max': None,
+            'error': 'G band not available',
+            'band_schema': band_schema
+        }
     
-    # Calculate GNDVI
-    denominator = green + nir_approx + 1e-7
-    gndvi = (nir_approx - green) / denominator
+    # Extract bands
+    try:
+        green_idx = band_order.index('G')
+        nir_idx = band_order.index('NIR')
+    except ValueError:
+        logger.warning(f"Required bands (G, NIR) not found in band_order: {band_order}")
+        return {
+            'gndvi_mean': None,
+            'gndvi_std': None,
+            'gndvi_min': None,
+            'gndvi_max': None,
+            'error': 'Required bands not found',
+            'band_schema': band_schema
+        }
     
-    # Normalize to 0-1 range
+    # Extract green and NIR bands
+    green = image_array[:, :, green_idx].astype(np.float32)
+    nir = image_array[:, :, nir_idx].astype(np.float32)
+    
+    # Normalize if needed
+    if np.max(green) > 1.0 or np.max(nir) > 1.0:
+        green = green / 255.0
+        nir = nir / 255.0
+    
+    # Calculate GNDVI: (NIR - Green) / (NIR + Green)
+    denominator = green + nir + 1e-7
+    gndvi = (nir - green) / denominator
+    
+    # Clip GNDVI to valid range [-1, 1]
     gndvi = np.clip(gndvi, -1, 1)
-    gndvi_normalized = (gndvi + 1) / 2  # Scale to 0-1
     
     # Calculate statistics
     mean_gndvi = float(np.mean(gndvi))
@@ -179,65 +259,105 @@ def calculate_gndvi(image_path: str) -> Dict:
         'gndvi_std': round(std_gndvi, 3),
         'gndvi_min': round(min_gndvi, 3),
         'gndvi_max': round(max_gndvi, 3),
-        'gndvi_map': gndvi_normalized.tolist()  # For visualization if needed
+        'band_schema': band_schema
     }
 
 
-def calculate_savi(image_path: str, L: float = 0.5) -> Dict:
+def calculate_savi(image_path: str, L: float = 0.5, 
+                  band_schema: Optional[Dict] = None,
+                  image_array: Optional[np.ndarray] = None) -> Dict:
     """
-    Calculate SAVI (Soil-Adjusted Vegetation Index) from an RGB image.
+    Calculate SAVI (Soil-Adjusted Vegetation Index) from true spectral bands.
     
     SAVI = ((NIR - Red) / (NIR + Red + L)) * (1 + L)
     Where L is a soil adjustment factor (typically 0.5)
     
-    For RGB images, approximates NIR similar to NDVI calculation.
+    Requires NIR band - returns None for RGB-only images.
     
     Args:
-        image_path: Path to the input image file
+        image_path: Path to the input image file (if image_array not provided)
         L: Soil adjustment factor (default 0.5)
+        band_schema: Optional band schema dictionary
+        image_array: Optional pre-loaded image array
         
     Returns:
-        Dictionary with SAVI statistics
+        Dictionary with SAVI statistics, or None if NIR not available
     """
-    import cv2
-    import numpy as np
+    # Load image if not provided
+    if image_array is None:
+        if HAS_MULTISPECTRAL:
+            image_array, detected_schema = load_multispectral_image(
+                image_path, target_size=None, dataset_name=None
+            )
+            if band_schema is None:
+                band_schema = detected_schema
+        else:
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Could not read image: {image_path}")
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            image_array = img_rgb.astype(np.float32) / 255.0
+            if band_schema is None:
+                band_schema = {'bands': ['R', 'G', 'B'], 'band_order': ['R', 'G', 'B']}
     
-    # Read image
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Could not read image: {image_path}")
+    # Get band indices
+    band_order = band_schema.get('band_order', ['R', 'G', 'B'])
     
-    # Convert BGR to RGB
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    # Check if NIR is available
+    if 'NIR' not in band_order:
+        logger.warning("SAVI calculation requires NIR band, which is not available in RGB image")
+        return {
+            'savi_mean': None,
+            'savi_std': None,
+            'savi_min': None,
+            'savi_max': None,
+            'error': 'NIR band not available',
+            'band_schema': band_schema
+        }
     
-    # Extract channels
-    red = img_rgb[:, :, 0].astype(np.float32)
-    green = img_rgb[:, :, 1].astype(np.float32)
+    # Extract bands
+    try:
+        red_idx = band_order.index('R')
+        nir_idx = band_order.index('NIR')
+    except ValueError:
+        logger.warning(f"Required bands (R, NIR) not found in band_order: {band_order}")
+        return {
+            'savi_mean': None,
+            'savi_std': None,
+            'savi_min': None,
+            'savi_max': None,
+            'error': 'Required bands not found',
+            'band_schema': band_schema
+        }
     
-    # Approximate NIR (same as NDVI)
-    nir_approx = (2.0 * green) - red
-    nir_approx = np.clip(nir_approx, 0, 255)
+    # Extract red and NIR bands
+    red = image_array[:, :, red_idx].astype(np.float32)
+    nir = image_array[:, :, nir_idx].astype(np.float32)
     
-    # Calculate SAVI
-    denominator = red + nir_approx + L + 1e-7
-    savi = ((nir_approx - red) / denominator) * (1 + L)
+    # Normalize if needed
+    if np.max(red) > 1.0 or np.max(nir) > 1.0:
+        red = red / 255.0
+        nir = nir / 255.0
     
-    # Normalize to 0-1 range
-    savi = np.clip(savi, -1, 1)
-    savi_normalized = (savi + 1) / 2  # Scale to 0-1
+    # Calculate SAVI: ((NIR - Red) / (NIR + Red + L)) * (1 + L)
+    denominator = red + nir + L + 1e-7
+    savi = ((nir - red) / denominator) * (1 + L)
+    
+    # Clip SAVI to valid range (typically [-1, 1] but can exceed)
+    savi = np.clip(savi, -2, 2)  # SAVI can exceed [-1, 1] range
     
     # Calculate statistics
-    mean_savi = float(np.mean(savi_normalized))
-    std_savi = float(np.std(savi_normalized))
-    min_savi = float(np.min(savi_normalized))
-    max_savi = float(np.max(savi_normalized))
+    mean_savi = float(np.mean(savi))
+    std_savi = float(np.std(savi))
+    min_savi = float(np.min(savi))
+    max_savi = float(np.max(savi))
     
     return {
         'savi_mean': round(mean_savi, 3),
         'savi_std': round(std_savi, 3),
         'savi_min': round(min_savi, 3),
         'savi_max': round(max_savi, 3),
-        'savi_map': savi_normalized.tolist()  # For visualization if needed
+        'band_schema': band_schema
     }
 
 
@@ -341,6 +461,274 @@ def classify_crop_health_tensorflow(image_path: str, model_path: Optional[str] =
         }
 
 
+def classify_multi_crop_health(
+    image_path: str,
+    model_path: Optional[str] = None,
+    dataset_name: Optional[str] = None,
+    band_schema: Optional[Dict] = None
+) -> Dict:
+    """
+    Classify multi-crop plant health using band-aware model (no NIR approximation).
+    
+    Supports cherry tomatoes, onions, and corn with unified health taxonomy.
+    Uses separate RGB and multispectral paths based on available bands.
+    
+    Args:
+        image_path: Path to the input image
+        model_path: Optional path to saved TensorFlow model
+        dataset_name: Optional dataset name for band schema lookup
+        band_schema: Optional pre-detected band schema
+        
+    Returns:
+        Dictionary with classification results including:
+        - health_classification: Predicted health category
+        - health_confidence: Health classification confidence (0-1)
+        - crop_type: Predicted crop type
+        - crop_confidence: Crop type confidence (0-1)
+        - all_health_predictions: Probability distribution across health classes
+        - all_crop_predictions: Probability distribution across crop types
+        - band_schema: Detected band schema
+        - processing_path: 'rgb' or 'multispectral'
+        - model_loaded: Whether model was successfully loaded
+    """
+    import os
+    import glob
+    import time
+    
+    start_time = time.time()
+    
+    # Default model path - try to find multi-crop model
+    if model_path is None:
+        model_path = os.getenv('MULTI_CROP_MODEL_PATH')
+        if not model_path or not os.path.exists(model_path):
+            multi_crop_dir = os.getenv('MULTI_CROP_MODEL_DIR', './models/multi_crop')
+            if os.path.exists(multi_crop_dir):
+                model_files = glob.glob(os.path.join(multi_crop_dir, '*_final.h5'))
+                if model_files:
+                    model_path = max(model_files, key=os.path.getmtime)
+    
+    if not model_path or not os.path.exists(model_path):
+        return {
+            'health_classification': 'model_not_found',
+            'health_confidence': 0.0,
+            'crop_type': 'unknown',
+            'crop_confidence': 0.0,
+            'all_health_predictions': {},
+            'all_crop_predictions': {},
+            'model_loaded': False,
+            'error': f'Multi-crop model file not found: {model_path}'
+        }
+    
+    try:
+        # Load model (should be loaded once in background_worker, but handle here too)
+        import tensorflow as tf
+        model = tf.keras.models.load_model(model_path)
+        
+        # Load class names
+        model_dir = os.path.dirname(model_path)
+        metadata_files = glob.glob(os.path.join(model_dir, '*_metadata.json'))
+        if metadata_files:
+            with open(max(metadata_files, key=os.path.getmtime), 'r') as f:
+                metadata = json.load(f)
+                health_class_names = metadata.get('health_classes', UNIFIED_HEALTH_LABELS)
+                crop_class_names = metadata.get('crop_types', CROP_TYPES)
+        else:
+            health_class_names = UNIFIED_HEALTH_LABELS
+            crop_class_names = CROP_TYPES
+        
+        # Load image with multispectral support
+        if HAS_MULTISPECTRAL:
+            img, detected_schema = load_multispectral_image(
+                image_path,
+                target_size=(224, 224),
+                dataset_name=dataset_name,
+                band_order=None  # Auto-detect
+            )
+            if band_schema is None:
+                band_schema = detected_schema
+        else:
+            # Fallback to OpenCV
+            img = cv2.imread(image_path)
+            if img is None:
+                raise ValueError(f"Could not read image: {image_path}")
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = cv2.resize(img, (224, 224))
+            img = img.astype(np.float32) / 255.0
+            if band_schema is None:
+                band_schema = {'bands': ['R', 'G', 'B'], 'band_order': ['R', 'G', 'B'], 'band_count': 3}
+        
+        # Determine processing path (check for fallback first)
+        processing_path = band_schema.get('processing_path', None)
+        fallback_reason = band_schema.get('fallback_reason', None)
+        
+        if processing_path is None:
+            band_order = band_schema.get('band_order', [])
+            has_nir = 'NIR' in band_order
+            processing_path = 'multispectral' if has_nir else 'rgb'
+        
+        # Ensure fallback_reason is set if processing_path is rgb_fallback
+        if processing_path == 'rgb_fallback' and fallback_reason is None:
+            fallback_reason = band_schema.get('fallback_reason', 'Band schema validation failed')
+        
+        # Prepare inputs for band-aware model
+        # RGB input (always 3 channels)
+        if img.shape[2] >= 3:
+            rgb_img = img[:, :, :3]
+        else:
+            # Pad if needed
+            rgb_img = np.pad(img, ((0, 0), (0, 0), (0, 3 - img.shape[2])), mode='constant')
+        
+        # Multispectral input (4 channels: RGB+NIR)
+        if img.shape[2] >= 4:
+            ms_img = img[:, :, :4]
+        elif img.shape[2] == 3:
+            # RGB only - pad with zeros for NIR (model will use band_mask to ignore)
+            ms_img = np.concatenate([img, np.zeros((img.shape[0], img.shape[1], 1))], axis=-1)
+        else:
+            ms_img = np.pad(img, ((0, 0), (0, 0), (0, 4 - img.shape[2])), mode='constant')
+        
+        # Create band mask using band-name keyed mapping
+        if HAS_MULTISPECTRAL:
+            from multispectral_loader import create_band_mask_array, STANDARD_MULTISPECTRAL_BANDS
+            band_mask = create_band_mask_array(band_schema, STANDARD_MULTISPECTRAL_BANDS)
+        else:
+            # Default: RGB only
+            band_mask = np.array([1.0, 1.0, 1.0, 0.0], dtype=np.float32)  # [R, G, B, NIR]
+        
+        # Compute index features for fusion
+        # Calculate indices from true bands
+        ndvi_stats = calculate_ndvi(image_path, band_schema=band_schema, image_array=img)
+        savi_stats = calculate_savi(image_path, band_schema=band_schema, image_array=img)
+        gndvi_stats = calculate_gndvi(image_path, band_schema=band_schema, image_array=img)
+        
+        # Compute index features (exactly 12 features)
+        from train_multi_crop_model_v2 import compute_index_features, INDEX_FEATURE_DIM
+        index_features = compute_index_features(ndvi_stats, savi_stats, gndvi_stats)
+        assert index_features.shape[0] == INDEX_FEATURE_DIM, f"Expected {INDEX_FEATURE_DIM} features, got {index_features.shape[0]}"
+        
+        # Prepare model inputs
+        rgb_input = np.expand_dims(rgb_img, axis=0)
+        ms_input = np.expand_dims(ms_img, axis=0)
+        band_mask_input = np.expand_dims(band_mask, axis=0)
+        index_features_input = np.expand_dims(index_features, axis=0)
+        
+        # Predict (band-aware model expects 4 inputs)
+        # Check if model is band-aware (4 inputs) or legacy (1 input)
+        if len(model.inputs) == 4:
+            # Band-aware model
+            predictions = model.predict(
+                [rgb_input, ms_input, band_mask_input, index_features_input],
+                verbose=0
+            )
+        else:
+            # Legacy model - use RGB only
+            logger.warning("Using legacy model (not band-aware), falling back to RGB path")
+            if len(model.inputs) == 1:
+                predictions = model.predict(rgb_input, verbose=0)
+            else:
+                raise ValueError(f"Unexpected model input count: {len(model.inputs)}")
+        
+        inference_time_ms = int((time.time() - start_time) * 1000)
+        
+        # Handle both single-output (legacy) and multi-output models
+        if isinstance(predictions, list) and len(predictions) == 2:
+            health_preds = predictions[0][0]
+            crop_preds = predictions[1][0]
+        else:
+            health_preds = predictions[0]
+            crop_preds = np.array([0.25, 0.25, 0.25, 0.25])
+        
+        # Health classification
+        health_predicted_idx = np.argmax(health_preds)
+        health_confidence = float(health_preds[health_predicted_idx])
+        health_classification = health_class_names[health_predicted_idx] if health_predicted_idx < len(health_class_names) else 'unknown'
+        
+        # Crop type classification
+        crop_predicted_idx = np.argmax(crop_preds)
+        crop_confidence = float(crop_preds[crop_predicted_idx])
+        crop_type = crop_class_names[crop_predicted_idx] if crop_predicted_idx < len(crop_class_names) else 'unknown'
+        
+        # Top-k predictions
+        health_topk = []
+        health_sorted = np.argsort(health_preds)[::-1][:3]  # Top 3
+        for idx in health_sorted:
+            health_topk.append({
+                'class': health_class_names[idx] if idx < len(health_class_names) else 'unknown',
+                'confidence': float(health_preds[idx])
+            })
+        
+        crop_topk = []
+        crop_sorted = np.argsort(crop_preds)[::-1][:3]  # Top 3
+        for idx in crop_sorted:
+            crop_topk.append({
+                'class': crop_class_names[idx] if idx < len(crop_class_names) else 'unknown',
+                'confidence': float(crop_preds[idx])
+            })
+        
+        # All predictions
+        all_health_predictions = {}
+        for i, class_name in enumerate(health_class_names):
+            if i < len(health_preds):
+                all_health_predictions[class_name] = float(health_preds[i])
+        
+        all_crop_predictions = {}
+        for i, class_name in enumerate(crop_class_names):
+            if i < len(crop_preds):
+                all_crop_predictions[class_name] = float(crop_preds[i])
+        
+        # Optional heuristic fusion score (post-hoc, not used in model)
+        heuristic_fusion_score = None
+        if ndvi_stats.get('ndvi_mean') is not None:
+            # Use NDVI as additional signal for heuristic score
+            ndvi_mean = ndvi_stats.get('ndvi_mean', 0.0)
+            # Normalize NDVI to [0, 1] (NDVI is typically [-1, 1])
+            ndvi_normalized = (ndvi_mean + 1.0) / 2.0
+            # Weighted combination: 70% ML, 30% NDVI
+            heuristic_fusion_score = 0.7 * health_confidence + 0.3 * ndvi_normalized
+        else:
+            heuristic_fusion_score = health_confidence
+        
+        return {
+            'health_classification': health_classification,
+            'health_confidence': round(health_confidence, 3),
+            'crop_type': crop_type,
+            'crop_confidence': round(crop_confidence, 3),
+            'all_health_predictions': all_health_predictions,
+            'all_crop_predictions': all_crop_predictions,
+            'health_topk': health_topk,
+            'crop_topk': crop_topk,
+            'band_schema': band_schema,
+            'processing_path': processing_path,
+            'model_loaded': True,
+            'model_path': model_path,
+            'inference_time_ms': inference_time_ms,
+            'heuristic_fusion_score': round(heuristic_fusion_score, 3) if heuristic_fusion_score else None,
+            'index_stats': {
+                'ndvi': ndvi_stats,
+                'savi': savi_stats,
+                'gndvi': gndvi_stats
+            }
+        }
+        
+    except Exception as e:
+        import traceback
+        return {
+            'health_classification': 'error',
+            'health_confidence': 0.0,
+            'crop_type': 'unknown',
+            'crop_confidence': 0.0,
+            'all_health_predictions': {},
+            'all_crop_predictions': {},
+            'model_loaded': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }
+
+
+# Index feature computation moved to train_multi_crop_model_v2.compute_index_features
+# This ensures consistency: exactly 12 features (4 stats * 3 indices)
+
+
 def preprocess_image(image_path: str, output_path: Optional[str] = None, 
                      target_size: Optional[Tuple[int, int]] = None) -> str:
     """
@@ -374,21 +762,28 @@ def preprocess_image(image_path: str, output_path: Optional[str] = None,
 
 
 def analyze_crop_health(image_path: str, use_tensorflow: bool = False, 
-                        model_path: Optional[str] = None) -> Dict:
+                        model_path: Optional[str] = None,
+                        use_multi_crop: bool = True,
+                        model: Optional[object] = None,
+                        dataset_name: Optional[str] = None) -> Dict:
     """
-    Complete onion crop health analysis pipeline.
+    Complete multi-crop plant health analysis pipeline.
     
     Combines NDVI, SAVI, and GNDVI calculation with TensorFlow classification.
-    Optimized for onion (Allium cepa) crop monitoring.
+    Supports cherry tomatoes, onions, and corn with unified health taxonomy.
     
     Args:
         image_path: Path to input image
         use_tensorflow: Whether to use TensorFlow model (if available)
-        model_path: Path to TensorFlow model
+        model_path: Path to TensorFlow model (None = auto-detect)
+        use_multi_crop: Whether to prefer multi-crop model over single-crop
+        channels: Number of input channels (3 for RGB, 4 for RGB+NIR)
         
     Returns:
         Complete analysis dictionary with NDVI, SAVI, GNDVI, and classification
     """
+    import os
+    
     # Preprocess
     processed_path = preprocess_image(image_path)
     
@@ -407,16 +802,57 @@ def analyze_crop_health(image_path: str, use_tensorflow: bool = False,
     health_score = None
     summary = None
     confidence = None
+    crop_type = 'unknown'
+    crop_confidence = None
     model_version = None
+    analysis_type = 'ndvi_savi_gndvi'
     
     if use_tensorflow:
-        tf_results = classify_crop_health_tensorflow(processed_path, model_path)
-        if tf_results.get('model_loaded') and tf_results.get('classification'):
-            # Use TensorFlow classification
-            health_status = tf_results.get('classification')
-            confidence = tf_results.get('confidence', 0.0)
-            model_version = os.path.basename(model_path) if model_path else 'tensorflow_model'
-            
+        # Try multi-crop model first if enabled
+        if use_multi_crop:
+            # Use pre-loaded model if provided, otherwise load from path
+            if model is not None:
+                # Model is already loaded, need to call inference directly
+                # For now, still use classify_multi_crop_health but pass model
+                tf_results = classify_multi_crop_health(
+                    processed_path,
+                    model_path=model_path,
+                    dataset_name=dataset_name
+                )
+            else:
+                tf_results = classify_multi_crop_health(
+                    processed_path,
+                    model_path=model_path,
+                    dataset_name=dataset_name
+                )
+            if tf_results.get('model_loaded'):
+                # Multi-crop model results
+                health_status = tf_results.get('health_classification')
+                confidence = tf_results.get('health_confidence', 0.0)
+                crop_type = tf_results.get('crop_type', 'unknown')
+                crop_confidence = tf_results.get('crop_confidence', 0.0)
+                model_version = os.path.basename(model_path) if model_path else 'multi_crop_model'
+                analysis_type = 'multi_crop_tensorflow'
+            else:
+                # Fallback to single-crop model
+                tf_results = classify_crop_health_tensorflow(processed_path, model_path)
+                if tf_results.get('model_loaded'):
+                    health_status = tf_results.get('classification')
+                    confidence = tf_results.get('confidence', 0.0)
+                    crop_type = tf_results.get('crop_type', 'onion')  # Legacy models default to onion
+                    model_version = os.path.basename(model_path) if model_path else 'tensorflow_model'
+                    analysis_type = 'tensorflow_single_crop'
+        else:
+            # Use single-crop model
+            tf_results = classify_crop_health_tensorflow(processed_path, model_path)
+            if tf_results.get('model_loaded'):
+                health_status = tf_results.get('classification')
+                confidence = tf_results.get('confidence', 0.0)
+                crop_type = tf_results.get('crop_type', 'onion')
+                model_version = os.path.basename(model_path) if model_path else 'tensorflow_model'
+                analysis_type = 'tensorflow_single_crop'
+        
+        if health_status:
             # Generate summary based on classification
             status_descriptions = {
                 'very_healthy': 'Excellent crop health with high vegetation vigor',
@@ -426,7 +862,8 @@ def analyze_crop_health(image_path: str, use_tensorflow: bool = False,
                 'very_poor': 'Critical crop health requiring immediate intervention',
                 'diseased': 'Signs of disease detected - treatment recommended',
                 'stressed': 'Crop stress detected - review environmental conditions',
-                'weeds': 'Significant weed presence affecting crop health'
+                'weeds': 'Significant weed presence affecting crop health',
+                'unknown': 'Unable to determine crop health status'
             }
             summary = status_descriptions.get(health_status, f'Crop health: {health_status}')
             
@@ -439,7 +876,8 @@ def analyze_crop_health(image_path: str, use_tensorflow: bool = False,
                 'very_poor': 0.1,
                 'diseased': 0.2,
                 'stressed': 0.4,
-                'weeds': 0.35
+                'weeds': 0.35,
+                'unknown': 0.0
             }
             health_score = base_scores.get(health_status, 0.5) * confidence
     
@@ -447,23 +885,24 @@ def analyze_crop_health(image_path: str, use_tensorflow: bool = False,
     if not health_status:
         mean_ndvi = ndvi_results.get('ndvi_mean', 0)
         if mean_ndvi < 0.2:
-            health_status = "Very Poor"
+            health_status = "very_poor"
             summary = "Critical attention needed"
         elif mean_ndvi < 0.4:
-            health_status = "Poor"
+            health_status = "poor"
             summary = "Attention needed"
         elif mean_ndvi < 0.6:
-            health_status = "Moderate"
+            health_status = "moderate"
             summary = "Moderate health"
         elif mean_ndvi < 0.8:
-            health_status = "Healthy"
+            health_status = "healthy"
             summary = "Healthy"
         else:
-            health_status = "Very Healthy"
+            health_status = "very_healthy"
             summary = "Very healthy"
         
         # Calculate health score from NDVI
         health_score = min(1.0, max(0.0, (mean_ndvi + 0.2) / 1.0))
+        analysis_type = 'ndvi_savi_gndvi'
     
     # Combine results
     analysis = {
@@ -475,11 +914,13 @@ def analyze_crop_health(image_path: str, use_tensorflow: bool = False,
         'summary': summary,
         'tensorflow': tf_results if use_tensorflow else None,
         'confidence': confidence,
+        'crop_type': crop_type,
+        'crop_confidence': crop_confidence,
         'model_version': model_version,
         'processed_image_path': processed_path,
         'original_image_path': image_path,
-        'crop_type': 'onion',
-        'analysis_type': 'tensorflow_onion_classification' if use_tensorflow and tf_results.get('model_loaded') else 'ndvi_savi_gndvi_onion'
+        'analysis_type': analysis_type,
+        'channels_used': channels if use_tensorflow else None
     }
     
     return analysis
