@@ -155,6 +155,69 @@ def set_processing_failed(image_id: str, error_message: str = None) -> bool:
     return update_image_status(image_id, 'failed')
 
 
+# Schema cache for column existence (reduces Postgres queries)
+_schema_cache = {
+    'has_gndvi': None,
+    'has_crop_type': None,
+    'has_ml_fields': None,
+    'has_heuristic_fusion': None,
+    'has_fusion_health': None,
+    'has_fallback_reason': None,
+    'initialized': False
+}
+
+
+def _check_column_exists(column_name: str, cur) -> bool:
+    """Check if a column exists in the analyses table (with caching)"""
+    # Check cache first
+    cache_key = f'has_{column_name}'
+    if _schema_cache.get(cache_key) is not None:
+        return _schema_cache[cache_key]
+    
+    # Query database
+    try:
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='analyses' AND column_name=%s
+        """, (column_name,))
+        exists = cur.fetchone() is not None
+        _schema_cache[cache_key] = exists
+        return exists
+    except Exception as e:
+        logger.warning(f"Error checking column {column_name}: {e}")
+        return False
+
+
+def _initialize_schema_cache(cur):
+    """Initialize schema cache by checking all columns at once"""
+    if _schema_cache['initialized']:
+        return
+    
+    try:
+        # Check all columns in one query
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name='analyses' 
+            AND column_name IN ('gndvi_mean', 'crop_type', 'band_schema', 
+                               'heuristic_fusion_score', 'fusion_health_score', 'fallback_reason')
+        """)
+        existing_columns = {row[0] for row in cur.fetchall()}
+        
+        _schema_cache['has_gndvi'] = 'gndvi_mean' in existing_columns
+        _schema_cache['has_crop_type'] = 'crop_type' in existing_columns
+        _schema_cache['has_ml_fields'] = 'band_schema' in existing_columns
+        _schema_cache['has_heuristic_fusion'] = 'heuristic_fusion_score' in existing_columns
+        _schema_cache['has_fusion_health'] = 'fusion_health_score' in existing_columns
+        _schema_cache['has_fallback_reason'] = 'fallback_reason' in existing_columns
+        _schema_cache['initialized'] = True
+        
+        logger.info(f"Schema cache initialized: {_schema_cache}")
+    except Exception as e:
+        logger.warning(f"Error initializing schema cache: {e}")
+        # Fall back to individual checks
+        _schema_cache['initialized'] = True
+
+
 def _convert_to_python_type(value):
     """Convert numpy types to Python native types for database insertion"""
     if value is None:
@@ -195,20 +258,197 @@ def save_analysis(image_id: str, analysis_data: Dict) -> bool:
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
-            # Insert or update analysis (including GNDVI if columns exist)
-            # Try to include GNDVI, but handle case where migration hasn't been run
-            try:
-                # Check if GNDVI columns exist
-                cur.execute("""
-                    SELECT column_name FROM information_schema.columns 
-                    WHERE table_name='analyses' AND column_name='gndvi_mean'
-                """)
-                has_gndvi = cur.fetchone() is not None
-            except:
-                has_gndvi = False
+            # Initialize schema cache (once per connection)
+            _initialize_schema_cache(cur)
             
-            if has_gndvi:
-                # Include GNDVI columns
+            # Use cached column existence flags (reduces Postgres queries)
+            has_gndvi = _schema_cache.get('has_gndvi', False)
+            has_crop_type = _schema_cache.get('has_crop_type', False)
+            has_ml_fields = _schema_cache.get('has_ml_fields', False)
+            has_heuristic_fusion = _schema_cache.get('has_heuristic_fusion', False)
+            has_fusion_health = _schema_cache.get('has_fusion_health', False)
+            has_fallback_reason = _schema_cache.get('has_fallback_reason', False)
+            
+            # Build column lists and values based on available columns
+            if has_gndvi and has_crop_type and has_ml_fields:
+                # Full schema with all fields
+                import json as json_module
+                band_schema_json = json_module.dumps(analysis_data.get('band_schema')) if analysis_data.get('band_schema') else None
+                health_topk_json = json_module.dumps(analysis_data.get('health_topk', [])) if analysis_data.get('health_topk') else None
+                crop_topk_json = json_module.dumps(analysis_data.get('crop_topk', [])) if analysis_data.get('crop_topk') else None
+                
+                # Get fusion score value (prefer heuristic_fusion_score)
+                heuristic_fusion_value = _convert_to_python_type(analysis_data.get('heuristic_fusion_score'))
+                fusion_health_value = _convert_to_python_type(analysis_data.get('fusion_health_score')) or heuristic_fusion_value
+                
+                # Build column list dynamically based on what exists
+                columns = [
+                    'image_id', 'ndvi_mean', 'ndvi_std', 'ndvi_min', 'ndvi_max',
+                    'savi_mean', 'savi_std', 'savi_min', 'savi_max',
+                    'gndvi_mean', 'gndvi_std', 'gndvi_min', 'gndvi_max',
+                    'health_score', 'health_status', 'summary',
+                    'analysis_type', 'model_version', 'confidence',
+                    'crop_type', 'crop_confidence',
+                    'band_schema', 'health_topk', 'crop_topk',
+                    'inference_time_ms'
+                ]
+                values = [
+                    image_id,
+                    _convert_to_python_type(analysis_data.get('ndvi_mean')),
+                    _convert_to_python_type(analysis_data.get('ndvi_std')),
+                    _convert_to_python_type(analysis_data.get('ndvi_min')),
+                    _convert_to_python_type(analysis_data.get('ndvi_max')),
+                    _convert_to_python_type(analysis_data.get('savi_mean')),
+                    _convert_to_python_type(analysis_data.get('savi_std')),
+                    _convert_to_python_type(analysis_data.get('savi_min')),
+                    _convert_to_python_type(analysis_data.get('savi_max')),
+                    _convert_to_python_type(analysis_data.get('gndvi_mean')),
+                    _convert_to_python_type(analysis_data.get('gndvi_std')),
+                    _convert_to_python_type(analysis_data.get('gndvi_min')),
+                    _convert_to_python_type(analysis_data.get('gndvi_max')),
+                    _convert_to_python_type(analysis_data.get('health_score')),
+                    analysis_data.get('health_status'),
+                    analysis_data.get('summary'),
+                    analysis_data.get('analysis_type', 'ndvi_savi_gndvi'),
+                    analysis_data.get('model_version'),
+                    _convert_to_python_type(analysis_data.get('confidence')),
+                    analysis_data.get('crop_type'),
+                    _convert_to_python_type(analysis_data.get('crop_confidence')),
+                    band_schema_json,
+                    health_topk_json,
+                    crop_topk_json,
+                    analysis_data.get('inference_time_ms')
+                ]
+                
+                # Add fusion score columns if they exist (backward compatibility)
+                update_clauses = [
+                    'ndvi_mean = EXCLUDED.ndvi_mean', 'ndvi_std = EXCLUDED.ndvi_std',
+                    'ndvi_min = EXCLUDED.ndvi_min', 'ndvi_max = EXCLUDED.ndvi_max',
+                    'savi_mean = EXCLUDED.savi_mean', 'savi_std = EXCLUDED.savi_std',
+                    'savi_min = EXCLUDED.savi_min', 'savi_max = EXCLUDED.savi_max',
+                    'gndvi_mean = EXCLUDED.gndvi_mean', 'gndvi_std = EXCLUDED.gndvi_std',
+                    'gndvi_min = EXCLUDED.gndvi_min', 'gndvi_max = EXCLUDED.gndvi_max',
+                    'health_score = EXCLUDED.health_score',
+                    'health_status = EXCLUDED.health_status',
+                    'summary = EXCLUDED.summary',
+                    'analysis_type = EXCLUDED.analysis_type',
+                    'model_version = EXCLUDED.model_version',
+                    'confidence = EXCLUDED.confidence',
+                    'crop_type = EXCLUDED.crop_type',
+                    'crop_confidence = EXCLUDED.crop_confidence',
+                    'band_schema = EXCLUDED.band_schema',
+                    'health_topk = EXCLUDED.health_topk',
+                    'crop_topk = EXCLUDED.crop_topk',
+                    'inference_time_ms = EXCLUDED.inference_time_ms'
+                ]
+                
+                if has_heuristic_fusion:
+                    columns.append('heuristic_fusion_score')
+                    values.append(heuristic_fusion_value)
+                    update_clauses.append('heuristic_fusion_score = EXCLUDED.heuristic_fusion_score')
+                
+                if has_fusion_health:
+                    columns.append('fusion_health_score')
+                    values.append(fusion_health_value)
+                    update_clauses.append('fusion_health_score = EXCLUDED.fusion_health_score')
+                
+                # Add fallback_reason if column exists
+                if has_fallback_reason:
+                    fallback_reason = analysis_data.get('fallback_reason')
+                    if fallback_reason:
+                        columns.append('fallback_reason')
+                        values.append(fallback_reason)
+                        update_clauses.append('fallback_reason = EXCLUDED.fallback_reason')
+                
+                columns.extend(['processed_image_path', 'processed_s3_url', 'processed_at'])
+                values.extend([
+                    analysis_data.get('processed_image_path'),
+                    analysis_data.get('processed_s3_url'),
+                    'CURRENT_TIMESTAMP'
+                ])
+                
+                columns_str = ', '.join(columns)
+                placeholders = ', '.join(['%s'] * len(values))
+                update_str = ', '.join(update_clauses) + ', updated_at = CURRENT_TIMESTAMP'
+                
+                cur.execute(f"""
+                    INSERT INTO analyses ({columns_str})
+                    VALUES ({placeholders})
+                    ON CONFLICT (image_id) DO UPDATE SET {update_str}
+                """, values)
+            elif has_gndvi and has_crop_type:
+                # Include GNDVI and crop_type columns (without ML fields)
+                cur.execute("""
+                    INSERT INTO analyses (
+                        image_id, ndvi_mean, ndvi_std, ndvi_min, ndvi_max,
+                        savi_mean, savi_std, savi_min, savi_max,
+                        gndvi_mean, gndvi_std, gndvi_min, gndvi_max,
+                        health_score, health_status, summary,
+                        analysis_type, model_version, confidence,
+                        crop_type, crop_confidence,
+                        processed_image_path, processed_s3_url,
+                        processed_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s,
+                        %s, %s,
+                        CURRENT_TIMESTAMP
+                    )
+                    ON CONFLICT (image_id) DO UPDATE SET
+                        ndvi_mean = EXCLUDED.ndvi_mean,
+                        ndvi_std = EXCLUDED.ndvi_std,
+                        ndvi_min = EXCLUDED.ndvi_min,
+                        ndvi_max = EXCLUDED.ndvi_max,
+                        savi_mean = EXCLUDED.savi_mean,
+                        savi_std = EXCLUDED.savi_std,
+                        savi_min = EXCLUDED.savi_min,
+                        savi_max = EXCLUDED.savi_max,
+                        gndvi_mean = EXCLUDED.gndvi_mean,
+                        gndvi_std = EXCLUDED.gndvi_std,
+                        gndvi_min = EXCLUDED.gndvi_min,
+                        gndvi_max = EXCLUDED.gndvi_max,
+                        health_score = EXCLUDED.health_score,
+                        health_status = EXCLUDED.health_status,
+                        summary = EXCLUDED.summary,
+                        analysis_type = EXCLUDED.analysis_type,
+                        model_version = EXCLUDED.model_version,
+                        confidence = EXCLUDED.confidence,
+                        crop_type = EXCLUDED.crop_type,
+                        crop_confidence = EXCLUDED.crop_confidence,
+                        processed_image_path = EXCLUDED.processed_image_path,
+                        processed_s3_url = EXCLUDED.processed_s3_url,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (
+                    image_id,
+                    _convert_to_python_type(analysis_data.get('ndvi_mean')),
+                    _convert_to_python_type(analysis_data.get('ndvi_std')),
+                    _convert_to_python_type(analysis_data.get('ndvi_min')),
+                    _convert_to_python_type(analysis_data.get('ndvi_max')),
+                    _convert_to_python_type(analysis_data.get('savi_mean')),
+                    _convert_to_python_type(analysis_data.get('savi_std')),
+                    _convert_to_python_type(analysis_data.get('savi_min')),
+                    _convert_to_python_type(analysis_data.get('savi_max')),
+                    _convert_to_python_type(analysis_data.get('gndvi_mean')),
+                    _convert_to_python_type(analysis_data.get('gndvi_std')),
+                    _convert_to_python_type(analysis_data.get('gndvi_min')),
+                    _convert_to_python_type(analysis_data.get('gndvi_max')),
+                    _convert_to_python_type(analysis_data.get('health_score')),
+                    analysis_data.get('health_status'),
+                    analysis_data.get('summary'),
+                    analysis_data.get('analysis_type', 'ndvi_savi_gndvi'),
+                    analysis_data.get('model_version'),
+                    _convert_to_python_type(analysis_data.get('confidence')),
+                    analysis_data.get('crop_type'),
+                    _convert_to_python_type(analysis_data.get('crop_confidence')),
+                    analysis_data.get('processed_image_path'),
+                    analysis_data.get('processed_s3_url'),
+                ))
+            elif has_gndvi:
+                # Include GNDVI columns (without crop_type)
                 cur.execute("""
                     INSERT INTO analyses (
                         image_id, ndvi_mean, ndvi_std, ndvi_min, ndvi_max,
@@ -266,7 +506,7 @@ def save_analysis(image_id: str, analysis_data: Dict) -> bool:
                     _convert_to_python_type(analysis_data.get('health_score')),
                     analysis_data.get('health_status'),
                     analysis_data.get('summary'),
-                    analysis_data.get('analysis_type', 'ndvi_savi_gndvi_onion'),
+                    analysis_data.get('analysis_type', 'ndvi_savi_gndvi'),
                     analysis_data.get('model_version'),
                     _convert_to_python_type(analysis_data.get('confidence')),
                     analysis_data.get('processed_image_path'),
@@ -274,59 +514,122 @@ def save_analysis(image_id: str, analysis_data: Dict) -> bool:
                 ))
             else:
                 # Fallback without GNDVI columns
-                cur.execute("""
-                    INSERT INTO analyses (
-                        image_id, ndvi_mean, ndvi_std, ndvi_min, ndvi_max,
-                        savi_mean, savi_std, savi_min, savi_max,
-                        health_score, health_status, summary,
-                        analysis_type, model_version, confidence,
-                        processed_image_path, processed_s3_url,
-                        processed_at
-                    ) VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s,
-                        CURRENT_TIMESTAMP
-                    )
-                    ON CONFLICT (image_id) DO UPDATE SET
-                        ndvi_mean = EXCLUDED.ndvi_mean,
-                        ndvi_std = EXCLUDED.ndvi_std,
-                        ndvi_min = EXCLUDED.ndvi_min,
-                        ndvi_max = EXCLUDED.ndvi_max,
-                        savi_mean = EXCLUDED.savi_mean,
-                        savi_std = EXCLUDED.savi_std,
-                        savi_min = EXCLUDED.savi_min,
-                        savi_max = EXCLUDED.savi_max,
-                        health_score = EXCLUDED.health_score,
-                        health_status = EXCLUDED.health_status,
-                        summary = EXCLUDED.summary,
-                        analysis_type = EXCLUDED.analysis_type,
-                        model_version = EXCLUDED.model_version,
-                        confidence = EXCLUDED.confidence,
-                        processed_image_path = EXCLUDED.processed_image_path,
-                        processed_s3_url = EXCLUDED.processed_s3_url,
-                        updated_at = CURRENT_TIMESTAMP
-                """, (
-                    image_id,
-                    _convert_to_python_type(analysis_data.get('ndvi_mean')),
-                    _convert_to_python_type(analysis_data.get('ndvi_std')),
-                    _convert_to_python_type(analysis_data.get('ndvi_min')),
-                    _convert_to_python_type(analysis_data.get('ndvi_max')),
-                    _convert_to_python_type(analysis_data.get('savi_mean')),
-                    _convert_to_python_type(analysis_data.get('savi_std')),
-                    _convert_to_python_type(analysis_data.get('savi_min')),
-                    _convert_to_python_type(analysis_data.get('savi_max')),
-                    _convert_to_python_type(analysis_data.get('health_score')),
-                    analysis_data.get('health_status'),
-                    analysis_data.get('summary'),
-                    analysis_data.get('analysis_type', 'ndvi_savi_gndvi_onion'),
-                    analysis_data.get('model_version'),
-                    _convert_to_python_type(analysis_data.get('confidence')),
-                    analysis_data.get('processed_image_path'),
-                    analysis_data.get('processed_s3_url'),
-                ))
+                if has_crop_type:
+                    # Include crop_type but not GNDVI
+                    cur.execute("""
+                        INSERT INTO analyses (
+                            image_id, ndvi_mean, ndvi_std, ndvi_min, ndvi_max,
+                            savi_mean, savi_std, savi_min, savi_max,
+                            health_score, health_status, summary,
+                            analysis_type, model_version, confidence,
+                            crop_type, crop_confidence,
+                            processed_image_path, processed_s3_url,
+                            processed_at
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s,
+                            %s, %s,
+                            CURRENT_TIMESTAMP
+                        )
+                        ON CONFLICT (image_id) DO UPDATE SET
+                            ndvi_mean = EXCLUDED.ndvi_mean,
+                            ndvi_std = EXCLUDED.ndvi_std,
+                            ndvi_min = EXCLUDED.ndvi_min,
+                            ndvi_max = EXCLUDED.ndvi_max,
+                            savi_mean = EXCLUDED.savi_mean,
+                            savi_std = EXCLUDED.savi_std,
+                            savi_min = EXCLUDED.savi_min,
+                            savi_max = EXCLUDED.savi_max,
+                            health_score = EXCLUDED.health_score,
+                            health_status = EXCLUDED.health_status,
+                            summary = EXCLUDED.summary,
+                            analysis_type = EXCLUDED.analysis_type,
+                            model_version = EXCLUDED.model_version,
+                            confidence = EXCLUDED.confidence,
+                            crop_type = EXCLUDED.crop_type,
+                            crop_confidence = EXCLUDED.crop_confidence,
+                            processed_image_path = EXCLUDED.processed_image_path,
+                            processed_s3_url = EXCLUDED.processed_s3_url,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (
+                        image_id,
+                        _convert_to_python_type(analysis_data.get('ndvi_mean')),
+                        _convert_to_python_type(analysis_data.get('ndvi_std')),
+                        _convert_to_python_type(analysis_data.get('ndvi_min')),
+                        _convert_to_python_type(analysis_data.get('ndvi_max')),
+                        _convert_to_python_type(analysis_data.get('savi_mean')),
+                        _convert_to_python_type(analysis_data.get('savi_std')),
+                        _convert_to_python_type(analysis_data.get('savi_min')),
+                        _convert_to_python_type(analysis_data.get('savi_max')),
+                        _convert_to_python_type(analysis_data.get('health_score')),
+                        analysis_data.get('health_status'),
+                        analysis_data.get('summary'),
+                        analysis_data.get('analysis_type', 'ndvi_savi_gndvi'),
+                        analysis_data.get('model_version'),
+                        _convert_to_python_type(analysis_data.get('confidence')),
+                        analysis_data.get('crop_type'),
+                        _convert_to_python_type(analysis_data.get('crop_confidence')),
+                        analysis_data.get('processed_image_path'),
+                        analysis_data.get('processed_s3_url'),
+                    ))
+                else:
+                    # No GNDVI, no crop_type
+                    cur.execute("""
+                        INSERT INTO analyses (
+                            image_id, ndvi_mean, ndvi_std, ndvi_min, ndvi_max,
+                            savi_mean, savi_std, savi_min, savi_max,
+                            health_score, health_status, summary,
+                            analysis_type, model_version, confidence,
+                            processed_image_path, processed_s3_url,
+                            processed_at
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s,
+                            CURRENT_TIMESTAMP
+                        )
+                        ON CONFLICT (image_id) DO UPDATE SET
+                            ndvi_mean = EXCLUDED.ndvi_mean,
+                            ndvi_std = EXCLUDED.ndvi_std,
+                            ndvi_min = EXCLUDED.ndvi_min,
+                            ndvi_max = EXCLUDED.ndvi_max,
+                            savi_mean = EXCLUDED.savi_mean,
+                            savi_std = EXCLUDED.savi_std,
+                            savi_min = EXCLUDED.savi_min,
+                            savi_max = EXCLUDED.savi_max,
+                            health_score = EXCLUDED.health_score,
+                            health_status = EXCLUDED.health_status,
+                            summary = EXCLUDED.summary,
+                            analysis_type = EXCLUDED.analysis_type,
+                            model_version = EXCLUDED.model_version,
+                            confidence = EXCLUDED.confidence,
+                            processed_image_path = EXCLUDED.processed_image_path,
+                            processed_s3_url = EXCLUDED.processed_s3_url,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (
+                        image_id,
+                        _convert_to_python_type(analysis_data.get('ndvi_mean')),
+                        _convert_to_python_type(analysis_data.get('ndvi_std')),
+                        _convert_to_python_type(analysis_data.get('ndvi_min')),
+                        _convert_to_python_type(analysis_data.get('ndvi_max')),
+                        _convert_to_python_type(analysis_data.get('savi_mean')),
+                        _convert_to_python_type(analysis_data.get('savi_std')),
+                        _convert_to_python_type(analysis_data.get('savi_min')),
+                        _convert_to_python_type(analysis_data.get('savi_max')),
+                        _convert_to_python_type(analysis_data.get('health_score')),
+                        analysis_data.get('health_status'),
+                        analysis_data.get('summary'),
+                        analysis_data.get('analysis_type', 'ndvi_savi_gndvi'),
+                        analysis_data.get('model_version'),
+                        _convert_to_python_type(analysis_data.get('confidence')),
+                        analysis_data.get('processed_image_path'),
+                        analysis_data.get('processed_s3_url'),
+                    ))
             
             # Store GNDVI in a JSON field or separate table if schema doesn't support it yet
             # For now, we'll store it in the summary or create a migration script

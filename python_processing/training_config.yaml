@@ -1,0 +1,59 @@
+# Multi-Crop Plant Health Model Training Configuration
+# This configuration ensures reproducible training with deterministic seeds
+
+# Model Architecture
+model:
+  input_size: [224, 224]  # Height, Width
+  channels: 3  # 3 for RGB, 4 for RGB+NIR
+  use_transfer_learning: true
+  base_model: "EfficientNetB0"  # Options: EfficientNetB0, ResNet50, MobileNetV2
+  dropout_rate: 0.5
+
+# Training Parameters
+training:
+  batch_size: 32
+  epochs: 50
+  learning_rate: 0.001
+  validation_split: 0.2
+  test_split: 0.1
+  
+# Data Augmentation
+augmentation:
+  enabled: true
+  rotation_range: 20
+  width_shift_range: 0.2
+  height_shift_range: 0.2
+  horizontal_flip: true
+  zoom_range: 0.2
+  brightness_range: [0.8, 1.2]
+
+# Reproducibility
+random_seed: 42
+
+# Output
+output:
+  model_dir: "./models/multi_crop"
+  save_best_only: true
+  monitor_metric: "val_health_class_accuracy"
+  
+# Callbacks
+callbacks:
+  early_stopping:
+    enabled: true
+    patience: 10
+    monitor: "val_health_class_accuracy"
+    restore_best_weights: true
+  
+  reduce_lr:
+    enabled: true
+    factor: 0.5
+    patience: 5
+    min_lr: 1e-7
+    monitor: "val_loss"
+
+# Loss Weights (for multi-output model)
+loss_weights:
+  health_class: 1.0
+  crop_type: 0.5
+
+

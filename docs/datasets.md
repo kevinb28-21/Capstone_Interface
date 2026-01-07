@@ -1,0 +1,273 @@
+# Dataset Discovery and Spectral Registry
+
+This document provides a curated shortlist of publicly available datasets for training multi-crop plant health models supporting cherry tomatoes, onions, and corn. Each dataset is documented with spectral band information, resolution, labels, size, license, and download instructions.
+
+## Unified Health Taxonomy
+
+All datasets must be mapped to the following unified health schema:
+
+```
+{ very_healthy, healthy, moderate, poor, very_poor, diseased, stressed, weeds, unknown }
+```
+
+See `python_processing/datasets/label_mapping.py` for dataset-specific mappings.
+
+---
+
+## Cherry Tomato Datasets
+
+### 1. Aerial Photographs of Cherry Tomato Crop (Dryad)
+- **Crop Coverage**: Cherry tomatoes
+- **Spectral Bands**: Multispectral (Green, Red, Near-Infrared)
+- **Resolution**: ~1.83 cm/pixel
+- **Labels**: Plant growth stages, stress levels, overall crop health
+- **Size**: 219.86 GB
+- **License**: Open Access (CC0)
+- **Download URL**: https://datadryad.org/dataset/doi:10.5061/dryad.63xsj3vbd
+- **Access Requirements**: Direct download via Dryad
+- **Notes**: High-quality multispectral data suitable for NDVI/SAVI/GNDVI calculations. Contains temporal sequences.
+
+**Label Mapping**:
+- High vigor/growth → `very_healthy`
+- Normal growth → `healthy`
+- Moderate stress → `moderate`
+- High stress → `stressed`
+- Disease symptoms → `diseased`
+
+### 2. PlantVillage - Tomato (RGB subset)
+- **Crop Coverage**: Tomatoes (including cherry varieties)
+- **Spectral Bands**: RGB only
+- **Resolution**: 256x256 pixels (standardized)
+- **Labels**: Healthy, multiple disease classes (Early blight, Late blight, Septoria leaf spot, etc.)
+- **Size**: ~18,000 tomato images
+- **License**: Open Access (CC BY 4.0)
+- **Download URL**: https://www.kaggle.com/datasets/abdallahalidev/plantvillage-dataset
+- **Alternative**: https://github.com/spMohanty/PlantVillage-Dataset
+- **Access Requirements**: Kaggle account or direct GitHub download
+- **Notes**: Well-labeled disease dataset. RGB-only, but excellent for disease classification.
+
+**Label Mapping**:
+- Healthy → `very_healthy`
+- Early blight, Late blight, Septoria → `diseased`
+- Bacterial spot → `diseased`
+- Leaf mold → `diseased`
+- Target spot → `diseased`
+- Mosaic virus → `diseased`
+- Yellow leaf curl virus → `diseased`
+
+---
+
+## Onion Datasets
+
+### 1. TOM2024: Tomato, Onion, and Maize Images
+- **Crop Coverage**: Onions (Allium cepa)
+- **Spectral Bands**: RGB
+- **Resolution**: High-resolution images (varies)
+- **Labels**: Healthy, pest-infested (caterpillars), diseases (Fusarium, Alternaria, etc.)
+- **Size**: 25,844 raw images; 12,000+ labeled images
+- **License**: Open Access (CC BY 4.0)
+- **DOI**: 10.17632/3d4yg89rtr.1
+- **Download URL**: https://data.mendeley.com/datasets/3d4yg89rtr/1
+- **Alternative**: https://pmc.ncbi.nlm.nih.gov/articles/PMC11871477/
+- **Access Requirements**: Mendeley account (free) or direct download
+- **Notes**: Comprehensive onion dataset with pest and disease annotations.
+
+**Label Mapping**:
+- Healthy → `very_healthy`
+- Fusarium → `diseased`
+- Alternaria → `diseased`
+- Caterpillar infestation → `stressed`
+- Pest damage → `poor`
+
+### 2. PlantVillage - Onion (RGB subset)
+- **Crop Coverage**: Onions
+- **Spectral Bands**: RGB only
+- **Resolution**: 256x256 pixels
+- **Labels**: Healthy, Downy mildew
+- **Size**: ~200 images
+- **License**: Open Access (CC BY 4.0)
+- **Download URL**: Included in PlantVillage dataset
+- **Notes**: Smaller dataset, useful for supplementing TOM2024.
+
+**Label Mapping**:
+- Healthy → `very_healthy`
+- Downy mildew → `diseased`
+
+---
+
+## Corn (Maize) Datasets
+
+### 1. WeedsGalore: UAV-based Maize Field Images
+- **Crop Coverage**: Maize (corn)
+- **Spectral Bands**: Multispectral (RGB, Red-Edge, Near-Infrared)
+- **Resolution**: High-resolution UAV imagery
+- **Labels**: Maize, four weed classes, segmentation masks
+- **Size**: Extensive dataset with dense annotations
+- **License**: Open Access (CC BY) - Note: Code repository is Apache-2.0, but dataset is CC BY
+- **Download URL**: https://github.com/GFZ/weedsgalore
+- **Access Requirements**: Direct GitHub download
+- **Notes**: Excellent multispectral data for corn and weed detection. Includes segmentation masks.
+
+**Label Mapping**:
+- Maize (healthy) → `very_healthy`
+- Weed classes → `weeds`
+- Stressed maize → `stressed`
+- Disease symptoms → `diseased`
+
+### 2. PlantVillage - Corn (Maize)
+- **Crop Coverage**: Corn/Maize
+- **Spectral Bands**: RGB only
+- **Resolution**: 256x256 pixels
+- **Labels**: Healthy, Common rust, Northern leaf blight, Cercospora leaf spot, Gray leaf spot
+- **Size**: ~4,000 images
+- **License**: Open Access (CC BY 4.0)
+- **Download URL**: Included in PlantVillage dataset
+- **Notes**: Good disease coverage for corn.
+
+**Label Mapping**:
+- Healthy → `very_healthy`
+- Common rust → `diseased`
+- Northern leaf blight → `diseased`
+- Cercospora leaf spot → `diseased`
+- Gray leaf spot → `diseased`
+
+### 3. Corn Leaf Disease Dataset (Kaggle)
+- **Crop Coverage**: Corn
+- **Spectral Bands**: RGB
+- **Resolution**: Varies (typically 256x256 or higher)
+- **Labels**: Healthy, Blight, Common rust, Gray leaf spot
+- **Size**: ~4,000+ images
+- **License**: Open Access
+- **Download URL**: https://www.kaggle.com/datasets/yanmeng/maize-leaf-disease-dataset
+- **Access Requirements**: Kaggle account (free)
+- **Notes**: Additional corn disease dataset for augmentation.
+
+**Label Mapping**:
+- Healthy → `very_healthy`
+- Blight → `diseased`
+- Common rust → `diseased`
+- Gray leaf spot → `diseased`
+
+---
+
+## General Crop Stress, Weeds, and Disease Datasets
+
+### 1. PlantVillage (Complete)
+- **Crop Coverage**: 38 classes across multiple crops (including tomatoes, corn, and others)
+- **Spectral Bands**: RGB only
+- **Resolution**: 256x256 pixels (standardized)
+- **Labels**: Healthy and disease classes for 14 crop species
+- **Size**: 54,305 images total
+- **License**: Open Access (CC BY 4.0)
+- **Download URL**: 
+  - Kaggle: https://www.kaggle.com/datasets/abdallahalidev/plantvillage-dataset
+  - GitHub: https://github.com/spMohanty/PlantVillage-Dataset
+- **Access Requirements**: Kaggle account or direct GitHub download
+- **Notes**: Largest publicly available plant disease dataset. Excellent for transfer learning and general disease classification.
+- **⚠️ Domain Mismatch Warning**: PlantVillage contains leaf images on uniform backgrounds, which may not generalize well to UAV/drone imagery. Consider this when evaluating model performance on UAV datasets.
+
+**Label Mapping**:
+- Healthy classes → `very_healthy` or `healthy`
+- Disease classes → `diseased`
+- Stress indicators → `stressed`
+
+### 2. Crop and Weed Dataset (Roboflow)
+- **Crop Coverage**: Multiple crops including corn, tomatoes
+- **Spectral Bands**: RGB
+- **Resolution**: Varies
+- **Labels**: Crop vs. weed segmentation
+- **Size**: ~1,000+ images
+- **License**: Open Access
+- **Download URL**: https://universe.roboflow.com/roboflow-jvuqo/plantnet-300k/dataset/1
+- **Access Requirements**: Roboflow account (free)
+- **Notes**: Good for weed detection across crops.
+
+**Label Mapping**:
+- Crop → `healthy` or `very_healthy`
+- Weed → `weeds`
+
+### 3. Agricultural Crop Stress Dataset (UAV imagery)
+- **Crop Coverage**: Various crops (can supplement with corn/tomato subsets)
+- **Spectral Bands**: RGB, sometimes NIR
+- **Resolution**: High-resolution UAV imagery
+- **Labels**: Stress indicators, water stress, nutrient deficiency
+- **Size**: Varies by source
+- **License**: Open Access (varies)
+- **Download URL**: Various research repositories
+- **Notes**: Search for "UAV crop stress" or "drone agriculture" datasets on Zenodo, Dryad, or research data repositories.
+
+**Label Mapping**:
+- Optimal conditions → `very_healthy`
+- Mild stress → `moderate`
+- Moderate stress → `stressed`
+- Severe stress → `poor` or `very_poor`
+- Water stress → `stressed`
+- Nutrient deficiency → `stressed`
+
+---
+
+## Dataset Summary Table
+
+| Dataset | Crop | Bands | Size | License | Primary Use |
+|---------|------|-------|------|---------|-------------|
+| Cherry Tomato (Dryad) | Cherry Tomato | RGB+NIR | 219.86 GB | CC0 | Multispectral training |
+| PlantVillage Tomato | Tomato | RGB | ~18K | CC BY 4.0 | Disease classification |
+| TOM2024 | Onion | RGB | 12K+ | CC BY 4.0 | Pest/disease classification |
+| WeedsGalore | Corn | RGB+RE+NIR | Large | CC BY | Multispectral + weeds |
+| PlantVillage Corn | Corn | RGB | ~4K | CC BY 4.0 | Disease classification |
+| PlantVillage Complete | Multiple | RGB | 54K+ | CC BY 4.0 | General disease/stress |
+
+**Legend**:
+- **RGB**: Red, Green, Blue channels
+- **NIR**: Near-Infrared band
+- **RE**: Red-Edge band
+
+---
+
+## Download and Processing Scripts
+
+All dataset download and parsing scripts are located in `python_processing/datasets/`:
+
+- `download_cherry_tomato.py` - Downloads Dryad cherry tomato dataset
+- `download_plantvillage.py` - Downloads PlantVillage dataset
+- `download_tom2024.py` - Downloads TOM2024 dataset
+- `download_weedsgalore.py` - Downloads WeedsGalore dataset
+- `parse_cherry_tomato.py` - Parses and maps cherry tomato labels
+- `parse_plantvillage.py` - Parses and maps PlantVillage labels
+- `parse_tom2024.py` - Parses and maps TOM2024 labels
+- `parse_weedsgalore.py` - Parses and maps WeedsGalore labels
+- `label_mapping.py` - Unified label mapping utilities
+
+See individual script documentation for usage instructions.
+
+---
+
+## Dataset Selection Recommendations
+
+### For Initial Training (Minimum Viable Dataset):
+1. **PlantVillage Complete** - Provides broad disease coverage across crops
+2. **TOM2024** - Onion-specific pest and disease data
+3. **WeedsGalore** - Multispectral corn data with weed annotations
+
+### For Production-Grade Model:
+1. **All datasets listed above** - Maximum coverage and robustness
+2. **Cherry Tomato (Dryad)** - High-quality multispectral data for tomatoes
+3. **Additional UAV datasets** - Real-world drone imagery for domain adaptation
+
+### For Multispectral-Specific Training:
+1. **Cherry Tomato (Dryad)** - RGB+NIR for tomatoes
+2. **WeedsGalore** - RGB+RE+NIR for corn
+3. **Supplement with RGB-only datasets** - For robustness when NIR unavailable
+
+---
+
+## License Compliance
+
+All datasets listed here are publicly available under open licenses (CC0, CC BY 4.0, MIT). Ensure proper attribution when using datasets in publications or commercial applications. See individual dataset licenses for specific requirements.
+
+---
+
+## Updates and Maintenance
+
+This document should be updated as new datasets become available or existing datasets are updated. Last updated: 2024.
+
