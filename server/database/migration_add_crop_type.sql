@@ -14,3 +14,4 @@ COMMENT ON COLUMN analyses.crop_type IS 'Predicted crop type: cherry_tomato, oni
 COMMENT ON COLUMN analyses.crop_confidence IS 'Confidence score for crop type prediction (0-1)';
 
 
+

@@ -329,3 +329,4 @@ print(f'Fallback reason: {schema.get(\"fallback_reason\")}')
 - **Tier-friendly**: No heavy dependencies or expensive patterns
 
 
+

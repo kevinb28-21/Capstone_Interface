@@ -11,17 +11,17 @@
   NPM_FLAGS = "--legacy-peer-deps"
   CI = "true"
 
-# Redirect API calls to backend
+# Redirect API calls to backend (using HTTPS to avoid mixed content errors)
 [[redirects]]
   from = "/api/*"
-  to = "http://ec2-18-117-90-212.us-east-2.compute.amazonaws.com/api/:splat"
+  to = "https://ec2-18-117-90-212.us-east-2.compute.amazonaws.com/api/:splat"
   status = 200
   force = true
 
-# Redirect uploads to backend
+# Redirect uploads to backend (using HTTPS to avoid mixed content errors)
 [[redirects]]
   from = "/uploads/*"
-  to = "http://ec2-18-117-90-212.us-east-2.compute.amazonaws.com/uploads/:splat"
+  to = "https://ec2-18-117-90-212.us-east-2.compute.amazonaws.com/uploads/:splat"
   status = 200
   force = true
 

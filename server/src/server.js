@@ -33,10 +33,15 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const app = express();
 
 // CORS configuration - support multiple origins and credentials
+// Allow Netlify domains and configured origins
 const allowedOrigins = (ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
 if (allowedOrigins.length === 0) {
   allowedOrigins.push('http://localhost:5173');
 }
+
+// Netlify domain patterns (allow all Netlify preview and production domains)
+const netlifyPattern = /^https?:\/\/[\w-]+\.netlify\.app$/;
+const netlifyPreviewPattern = /^https?:\/\/[\w-]+--[\w-]+\.netlify\.app$/;
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -47,6 +52,18 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
+    
+    // Allow all Netlify domains (production and preview)
+    if (netlifyPattern.test(origin) || netlifyPreviewPattern.test(origin)) {
+      return callback(null, true);
+    }
+    
+    // In development, be more permissive
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`⚠️  Allowing origin in development: ${origin}`);
+      return callback(null, true);
+    }
+    
     // Log for debugging
     console.warn(`CORS blocked origin: ${origin}`);
     return callback(new Error(`Origin ${origin} not allowed by CORS`), false);

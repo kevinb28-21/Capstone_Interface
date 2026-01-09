@@ -1,0 +1,171 @@
+# Netlify Deployment Troubleshooting
+
+## Issue: Changes pushed to GitHub but not deploying to Netlify
+
+### Quick Checklist
+
+1. ✅ **Verify Netlify Site is Connected**
+   - Go to [app.netlify.com](https://app.netlify.com)
+   - Check if your site is listed
+   - Verify it's connected to the correct GitHub repository
+
+2. ✅ **Check Site Status**
+   - In Netlify dashboard, check if site is **paused** or **active**
+   - If paused, click "Resume site" or "Activate site"
+
+3. ✅ **Verify Build Settings**
+   - Go to: **Site settings** → **Build & deploy** → **Continuous Deployment**
+   - **Base directory**: Should be `client` (or leave empty if using root netlify.toml)
+   - **Build command**: Should be `npm install && npm run build` (or `npm run build` if using netlify.toml)
+   - **Publish directory**: Should be `client/dist` (or `dist` if base directory is set to `client`)
+   - **Branch to deploy**: Should be `main` (or your default branch)
+
+4. ✅ **Check Build Logs**
+   - Go to: **Deploys** tab in Netlify dashboard
+   - Click on the latest deploy
+   - Check for build errors or warnings
+   - Common issues:
+     - Missing dependencies
+     - Build command failing
+     - Node version mismatch
+
+5. ✅ **Verify Webhook is Active**
+   - Go to: **Site settings** → **Build & deploy** → **Continuous Deployment**
+   - Click **Edit settings** next to your GitHub connection
+   - Verify webhook is active and receiving events
+   - You can test by clicking **Trigger deploy**
+
+6. ✅ **Check Branch Configuration**
+   - Go to: **Site settings** → **Build & deploy** → **Branch deploys**
+   - Ensure `main` branch is set to **Production branch**
+   - Check if branch filtering is enabled (might block deployments)
+
+7. ✅ **Verify netlify.toml Location**
+   - The `netlify.toml` should be in the **root** of your repository
+   - Netlify reads this file automatically
+   - Current config uses `base = "client"` which is correct
+
+8. ✅ **Check Environment Variables**
+   - Go to: **Site settings** → **Build & deploy** → **Environment**
+   - Verify `NODE_VERSION = "20"` is set (or matches netlify.toml)
+   - Check if any required env vars are missing
+
+### Common Fixes
+
+#### Fix 1: Trigger Manual Deploy
+1. Go to **Deploys** tab
+2. Click **Trigger deploy** → **Deploy site**
+3. This will force a new deployment
+
+#### Fix 2: Reconnect GitHub Repository
+1. Go to: **Site settings** → **Build & deploy** → **Continuous Deployment**
+2. Click **Edit settings** next to GitHub connection
+3. Click **Disconnect** then **Connect to Git provider**
+4. Re-authenticate and select your repository
+5. Verify build settings match netlify.toml
+
+#### Fix 3: Clear Build Cache
+1. Go to: **Deploys** tab
+2. Click on a failed deploy
+3. Click **Clear cache and retry deploy**
+
+#### Fix 4: Verify netlify.toml Syntax
+Your current `netlify.toml` should be:
+```toml
+[build]
+  base = "client"
+  command = "npm install && npm run build"
+  publish = "dist"
+```
+
+If build settings in dashboard differ, they override netlify.toml. Either:
+- **Option A**: Remove dashboard settings and rely on netlify.toml
+- **Option B**: Update dashboard to match netlify.toml
+
+#### Fix 5: Check for Build Errors
+Common build errors:
+- **Missing dependencies**: Add to `package.json`
+- **Node version**: Set `NODE_VERSION = "20"` in environment variables
+- **Build timeout**: Increase in site settings (if on paid plan)
+- **Memory issues**: Check build logs for OOM errors
+
+### Verification Steps
+
+1. **Check Recent Commits**
+   ```bash
+   git log --oneline -5
+   ```
+   Verify commits are on the branch Netlify is watching
+
+2. **Test Build Locally**
+   ```bash
+   cd client
+   npm install
+   npm run build
+   ```
+   If this fails, Netlify build will also fail
+
+3. **Check Netlify Status Page**
+   - Visit [status.netlify.com](https://status.netlify.com)
+   - Check for any ongoing incidents
+
+4. **Verify GitHub Webhook**
+   - Go to your GitHub repository
+   - **Settings** → **Webhooks**
+   - Find Netlify webhook
+   - Check recent deliveries for errors
+
+### Quick Diagnostic Commands
+
+```bash
+# Check if netlify.toml is valid
+cd /path/to/project
+cat netlify.toml
+
+# Test build locally
+cd client
+npm install
+npm run build
+
+# Check if dist folder is created
+ls -la client/dist
+```
+
+### Still Not Working?
+
+1. **Check Netlify Support**
+   - Go to Netlify dashboard → **Help** → **Support**
+   - Check build logs for specific error messages
+
+2. **Verify Repository Access**
+   - Ensure Netlify has access to your GitHub repository
+   - Check if repository is private (might need Netlify Pro)
+
+3. **Check Branch Protection**
+   - If using branch protection rules, ensure Netlify can push/merge
+
+4. **Review Build Logs**
+   - Look for specific error messages
+   - Common patterns:
+     - `Command failed with exit code 1`
+     - `Module not found`
+     - `Permission denied`
+     - `Build timeout`
+
+### Expected Behavior
+
+When working correctly:
+- Every push to `main` branch triggers a deploy
+- Netlify shows "Building" status
+- Build completes in 1-3 minutes
+- Site updates automatically
+- You receive email notifications (if enabled)
+
+### Next Steps
+
+1. Check Netlify dashboard for specific error messages
+2. Review build logs for the latest deploy
+3. Verify all settings match this guide
+4. Try triggering a manual deploy
+5. If still failing, share the specific error from build logs
+

@@ -34,20 +34,40 @@ const app = express();
 // Middleware
 // ============================================
 
-// CORS configuration
+// CORS configuration - allow Netlify domains and configured origins
 const allowedOrigins = (ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
 if (allowedOrigins.length === 0) {
   allowedOrigins.push('http://localhost:5173');
 }
 
+// Netlify domain patterns (allow all Netlify preview and production domains)
+const netlifyPattern = /^https?:\/\/[\w-]+\.netlify\.app$/;
+const netlifyPreviewPattern = /^https?:\/\/[\w-]+--[\w-]+\.netlify\.app$/;
+
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, Postman, or server-to-server)
     if (!origin) {
       return callback(null, true);
     }
+    
+    // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
+    
+    // Allow all Netlify domains (production and preview)
+    if (netlifyPattern.test(origin) || netlifyPreviewPattern.test(origin)) {
+      return callback(null, true);
+    }
+    
+    // In development, be more permissive
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`⚠️  Allowing origin in development: ${origin}`);
+      return callback(null, true);
+    }
+    
+    // Log blocked origin for debugging
     console.warn(`CORS blocked origin: ${origin}`);
     return callback(new Error(`Origin ${origin} not allowed by CORS`), false);
   },
@@ -180,6 +200,7 @@ app.listen(PORT, async () => {
 });
 
 export default app;
+
 
 
 

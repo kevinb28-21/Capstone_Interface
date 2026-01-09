@@ -41,23 +41,68 @@ export const api = {
     try {
       const response = await fetch(url, {
         credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+        },
       });
+      
+      // Handle non-OK responses
       if (!response.ok) {
-        throw new Error(`API Error: ${response.statusText} (${response.status})`);
+        let errorMessage = `API Error: ${response.statusText} (${response.status})`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error || errorData.message) {
+            errorMessage = errorData.error || errorData.message;
+          }
+        } catch (e) {
+          // If response isn't JSON, use status text
+        }
+        throw new Error(errorMessage);
       }
+      
+      // Handle empty responses
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        if (!text) {
+          return null; // Empty response
+        }
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          return text; // Return as text if not JSON
+        }
+      }
+      
       return response.json();
     } catch (error) {
       console.error('API GET Error:', error);
+      console.error('Failed URL:', url);
       
       // Provide helpful error message for connection failures
-      if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
-        const helpfulError = new Error(
-          `Cannot connect to backend server at ${url}. ` +
-          `Please ensure the backend server is running on port 5050. ` +
-          `Run: cd server && npm run dev`
-        );
+      if (error.message === 'Failed to fetch' || 
+          error.name === 'TypeError' || 
+          error.message.includes('fetch')) {
+        
+        // Check if we're in production (Netlify)
+        const isProduction = !import.meta.env.DEV;
+        const isNetlify = window.location.hostname.includes('netlify.app');
+        
+        let helpfulMessage;
+        if (isProduction && isNetlify) {
+          helpfulMessage = `Cannot connect to backend server. ` +
+            `The backend may be down or CORS is misconfigured. ` +
+            `Check that the backend server is running and allows requests from ${window.location.origin}`;
+        } else {
+          helpfulMessage = `Cannot connect to backend server at ${url}. ` +
+            `Please ensure the backend server is running on port 5050. ` +
+            `Run: cd server && npm run dev`;
+        }
+        
+        const helpfulError = new Error(helpfulMessage);
         helpfulError.name = 'ConnectionError';
         helpfulError.originalError = error;
+        helpfulError.url = url;
         throw helpfulError;
       }
       
@@ -75,16 +120,58 @@ export const api = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         credentials: 'include',
         body: JSON.stringify(data),
       });
+      
       if (!response.ok) {
-        throw new Error(`API Error: ${response.statusText} (${response.status})`);
+        let errorMessage = `API Error: ${response.statusText} (${response.status})`;
+        try {
+          const errorData = await response.json();
+          if (errorData.error || errorData.message) {
+            errorMessage = errorData.error || errorData.message;
+          }
+        } catch (e) {
+          // If response isn't JSON, use status text
+        }
+        throw new Error(errorMessage);
       }
+      
+      // Handle empty responses
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        if (!text) {
+          return null;
+        }
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          return text;
+        }
+      }
+      
       return response.json();
     } catch (error) {
       console.error('API POST Error:', error);
+      console.error('Failed URL:', url);
+      
+      // Handle connection errors
+      if (error.message === 'Failed to fetch' || 
+          error.name === 'TypeError' || 
+          error.message.includes('fetch')) {
+        const helpfulError = new Error(
+          `Cannot connect to backend server at ${url}. ` +
+          `Check network connection and CORS configuration.`
+        );
+        helpfulError.name = 'ConnectionError';
+        helpfulError.originalError = error;
+        helpfulError.url = url;
+        throw helpfulError;
+      }
+      
       throw error;
     }
   },
@@ -99,14 +186,62 @@ export const api = {
         method: 'POST',
         body: formData,
         credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+        },
       });
+      
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API Error: ${response.statusText} (${response.status}) - ${errorText}`);
+        let errorMessage = `API Error: ${response.statusText} (${response.status})`;
+        try {
+          const errorText = await response.text();
+          if (errorText) {
+            try {
+              const errorData = JSON.parse(errorText);
+              errorMessage = errorData.error || errorData.message || errorMessage;
+            } catch (e) {
+              errorMessage = `${errorMessage} - ${errorText}`;
+            }
+          }
+        } catch (e) {
+          // Use default error message
+        }
+        throw new Error(errorMessage);
       }
+      
+      // Handle empty responses
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        if (!text) {
+          return null;
+        }
+        try {
+          return JSON.parse(text);
+        } catch (e) {
+          return text;
+        }
+      }
+      
       return response.json();
     } catch (error) {
       console.error('API Upload Error:', error);
+      console.error('Failed URL:', url);
+      
+      // Handle connection errors
+      if (error.message === 'Failed to fetch' || 
+          error.name === 'TypeError' || 
+          error.message.includes('fetch')) {
+        const helpfulError = new Error(
+          `Cannot connect to backend server at ${url}. ` +
+          `Check network connection and CORS configuration.`
+        );
+        helpfulError.name = 'ConnectionError';
+        helpfulError.originalError = error;
+        helpfulError.url = url;
+        throw helpfulError;
+      }
+      
       throw error;
     }
   },
