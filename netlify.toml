@@ -12,17 +12,17 @@
   CI = "true"
 
 # Redirect API calls to backend (using HTTP - update to HTTPS once security group allows port 443)
-# Using current EC2 IP: 3.144.192.19
+# Current EC2 instance: ec2-3-144-192-19.us-east-2.compute.amazonaws.com (IP: 3.144.192.19)
 [[redirects]]
   from = "/api/*"
-  to = "http://3.144.192.19/api/:splat"
+  to = "http://ec2-3-144-192-19.us-east-2.compute.amazonaws.com/api/:splat"
   status = 200
   force = true
 
 # Redirect uploads to backend (using HTTP - update to HTTPS once security group allows port 443)
 [[redirects]]
   from = "/uploads/*"
-  to = "http://3.144.192.19/uploads/:splat"
+  to = "http://ec2-3-144-192-19.us-east-2.compute.amazonaws.com/uploads/:splat"
   status = 200
   force = true
 
