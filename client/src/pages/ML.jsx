@@ -156,6 +156,16 @@ export default function MLPage() {
 
   return (
     <div className="container">
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--space-4)' }}>
+        <button 
+          className="btn btn-secondary btn-sm" 
+          onClick={load}
+          disabled={isFetching}
+          style={{ textTransform: 'none', gap: 'var(--space-2)' }}
+        >
+          {isFetching ? '⚡ Syncing...' : '🔄 Refresh Intelligence Data'}
+        </button>
+      </div>
       <div className="container-grid">
         <div className="card">
           <div className="section-title">Model Training & Status</div>

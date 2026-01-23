@@ -10,35 +10,35 @@ export default function ModelTraining() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchModelStatus = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const status = await api.get('/api/ml/status');
-        setModelInfo(status);
-      } catch (err) {
-        console.error('Failed to fetch model status:', err);
-        setError(err.message || 'Failed to load model status');
-        // Set default state on error
-        setModelInfo({
-          model_available: false,
-          model_type: 'none',
-          model_path: null,
-          model_version: null,
-          channels: 3,
-          worker_config: {
-            USE_MULTI_CROP_MODEL: true,
-            MULTI_CROP_MODEL_DIR: './models/multi_crop',
-            MULTI_CROP_MODEL_PATH: null,
-            MODEL_CHANNELS: '3'
-          }
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchModelStatus = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const status = await api.get('/api/ml/status');
+      setModelInfo(status);
+    } catch (err) {
+      console.error('Failed to fetch model status:', err);
+      setError(err.message || 'Failed to load model status');
+      // Set default state on error
+      setModelInfo({
+        model_available: false,
+        model_type: 'none',
+        model_path: null,
+        model_version: null,
+        channels: 3,
+        worker_config: {
+          USE_MULTI_CROP_MODEL: true,
+          MULTI_CROP_MODEL_DIR: './models/multi_crop',
+          MULTI_CROP_MODEL_PATH: null,
+          MODEL_CHANNELS: '3'
+        }
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchModelStatus();
   }, []);
 
@@ -100,9 +100,30 @@ export default function ModelTraining() {
               fontWeight: 'var(--font-weight-bold)', 
               color: 'var(--color-text-primary)',
               fontFamily: 'var(--font-display)',
-              fontSize: 'var(--font-size-lg)'
+              fontSize: 'var(--font-size-lg)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
             }}>
               Model Status: {modelAvailable ? 'System Ready' : 'Optimization Required'}
+              <button 
+                onClick={fetchModelStatus} 
+                disabled={loading}
+                title="Force sync with neural engine"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  opacity: loading ? 0.5 : 0.7,
+                  transition: 'opacity 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: 0
+                }}
+              >
+                {loading ? '⏳' : '🔄'}
+              </button>
             </div>
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--letter-spacing-wider)' }}>
               {modelAvailable ? 'Neural Network Operational' : 'Offline Mode Active'}
