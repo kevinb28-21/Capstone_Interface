@@ -131,6 +131,50 @@ def repair_image_paths():
             return_db_connection(conn)
 
 
+def recover_stuck_images():
+    """
+    Recover images that are stuck in 'processing' status (likely from a previous crash).
+    Resets them to 'uploaded' so they can be processed again.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            # Find images stuck in processing status (older than 5 minutes)
+            cur.execute("""
+                SELECT id, filename, updated_at
+                FROM images 
+                WHERE processing_status = 'processing'
+                AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '5 minutes')
+            """)
+            
+            stuck_images = cur.fetchall()
+            if stuck_images:
+                logger.warning(f"Found {len(stuck_images)} image(s) stuck in 'processing' status")
+                for row in stuck_images:
+                    image_id, filename, updated_at = row
+                    logger.info(f"Recovering stuck image {image_id} ({filename}), last updated: {updated_at}")
+                    cur.execute("""
+                        UPDATE images 
+                        SET processing_status = 'uploaded',
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = %s
+                    """, (image_id,))
+                conn.commit()
+                logger.info(f"✓ Recovered {len(stuck_images)} stuck image(s) - reset to 'uploaded' status")
+                return len(stuck_images)
+            else:
+                logger.info("✓ No stuck images found")
+                return 0
+        
+        return_db_connection(conn)
+    except Exception as e:
+        logger.error(f"Error recovering stuck images: {e}", exc_info=True)
+        if conn:
+            return_db_connection(conn)
+        return 0
+
+
 def download_image_if_needed(image_record: dict) -> str:
     """
     Get local file path for image, downloading from S3 if needed
@@ -303,19 +347,26 @@ def process_image(image_record: dict) -> bool:
         True if successful, False otherwise
     """
     image_id = image_record['id']
-    logger.info(f"Processing image {image_id}: {image_record.get('filename', 'unknown')}")
+    filename = image_record.get('filename', 'unknown')
+    logger.info(f"[{image_id}] Starting processing for {filename}")
+    
+    # Track if we've marked as processing (to ensure we mark as failed on error)
+    marked_as_processing = False
     
     try:
         # Step 1: Mark as processing
+        logger.info(f"[{image_id}] Marking as 'processing'")
         if not set_processing_started(image_id):
-            logger.error(f"Failed to mark image {image_id} as processing")
+            logger.error(f"[{image_id}] Failed to mark image as processing")
             return False
+        marked_as_processing = True
         
         # Step 2: Get local file path
         try:
             image_path = download_image_if_needed(image_record)
+            logger.info(f"[{image_id}] Local file path: {image_path}")
         except FileNotFoundError as e:
-            logger.error(f"Image file not found: {e}")
+            logger.error(f"[{image_id}] Image file not found: {e}")
             set_processing_failed(image_id, str(e))
             return False
         
@@ -325,12 +376,22 @@ def process_image(image_record: dict) -> bool:
         model_path = _model_cache['model_path']
         use_multi_crop = _model_cache['model_type'] == 'multi_crop'
         
-        logger.info(f"Analyzing crop image: {image_path}")
+        logger.info(f"[{image_id}] Analyzing crop image: {image_path}")
         analysis_result = analyze_crop_health(
             image_path,
             use_tensorflow=use_tensorflow,
             model_path=model_path if use_tensorflow else None,
             use_multi_crop=use_multi_crop
+        )
+        
+        # Log analysis summary
+        ndvi_mean = analysis_result.get('ndvi_mean', 'N/A')
+        savi_mean = analysis_result.get('savi_mean', 'N/A')
+        gndvi_mean = analysis_result.get('gndvi_mean', 'N/A')
+        health_status = analysis_result.get('health_status', 'N/A')
+        logger.info(
+            f"[{image_id}] Analysis result: NDVI={ndvi_mean}, SAVI={savi_mean}, "
+            f"GNDVI={gndvi_mean}, health_status={health_status}"
         )
         
         # Extract TensorFlow model results if available
@@ -422,22 +483,28 @@ def process_image(image_record: dict) -> bool:
                 logger.info(f"Uploaded processed image to S3: {processed_s3_url}")
         
         # Step 6: Save analysis to database
+        logger.info(f"[{image_id}] Saving analysis to database")
         if not save_analysis(image_id, analysis_result):
-            logger.error(f"Failed to save analysis for image {image_id}")
+            logger.error(f"[{image_id}] Failed to save analysis for image")
             set_processing_failed(image_id, "Failed to save analysis")
             return False
+        logger.info(f"[{image_id}] Saved analysis row successfully")
         
         # Step 7: Mark as completed
+        logger.info(f"[{image_id}] Marking as 'completed'")
         if not set_processing_completed(image_id):
-            logger.error(f"Failed to mark image {image_id} as completed")
+            logger.error(f"[{image_id}] Failed to mark image as completed - marking as failed")
+            set_processing_failed(image_id, "Failed to update status to completed")
             return False
         
-        logger.info(f"✓ Successfully processed image {image_id}")
+        logger.info(f"[{image_id}] ✓ Successfully processed image - status set to 'completed'")
         return True
         
     except Exception as e:
-        logger.error(f"Error processing image {image_id}: {e}", exc_info=True)
-        set_processing_failed(image_id, str(e))
+        logger.exception(f"[{image_id}] Error during processing: {e}")
+        if marked_as_processing:
+            set_processing_failed(image_id, str(e))
+            logger.info(f"[{image_id}] Status set to 'failed' due to error")
         return False
 
 
@@ -445,26 +512,136 @@ def process_batch():
     """Process a batch of pending images"""
     try:
         # Get pending images
+        logger.info("[POLL] Checking for pending images...")
         pending_images = get_pending_images(limit=BATCH_SIZE)
         
         if not pending_images:
             return 0
         
-        logger.info(f"Found {len(pending_images)} pending image(s) to process")
+        logger.info(f"[POLL] Found {len(pending_images)} pending image(s) to process")
         
         processed_count = 0
         for image_record in pending_images:
             if not running:
                 break
             
-            if process_image(image_record):
-                processed_count += 1
+            # Process each image with individual error handling
+            try:
+                if process_image(image_record):
+                    processed_count += 1
+            except Exception as e:
+                # Individual image processing error - already logged in process_image
+                logger.error(f"Unexpected error processing image {image_record.get('id')}: {e}", exc_info=True)
+                # Ensure status is set to failed
+                try:
+                    set_processing_failed(image_record.get('id'), f"Unexpected error: {str(e)}")
+                except Exception as db_error:
+                    logger.error(f"Failed to mark image as failed: {db_error}")
         
         return processed_count
         
     except Exception as e:
         logger.error(f"Error in process_batch: {e}", exc_info=True)
         return 0
+
+
+"""
+================================================================================
+TESTING CHECKLIST - Background Worker & Image Processing Pipeline
+================================================================================
+
+1. START SERVICES:
+   - Start PostgreSQL: Ensure database is running and accessible
+   - Start Node backend: cd server && npm run dev (or npm start)
+   - Start Python background worker: cd python_processing && python background_worker.py
+   - Start frontend: cd client && npm run dev
+
+2. UPLOAD A TEST IMAGE:
+   - From the UI (Analytics page), upload an image
+   - Verify in the database:
+     SELECT id, filename, processing_status, uploaded_at
+     FROM images
+     ORDER BY uploaded_at DESC
+     LIMIT 5;
+   - Expect: new image with processing_status = 'uploaded'
+
+3. VERIFY WORKER PROCESSING:
+   - Watch the worker logs for:
+     - "[POLL] Checking for pending images..."
+     - "[POLL] Found X pending image(s) to process"
+     - "[{image_id}] Starting processing for {filename}"
+     - "[{image_id}] Status set to 'processing'"
+     - "[{image_id}] Analysis result: NDVI=..., SAVI=..., GNDVI=..., health_status=..."
+     - "[{image_id}] Status set to 'completed'"
+   - After a short delay (10-30 seconds), run:
+     SELECT id, filename, processing_status, processed_at
+     FROM images
+     WHERE processing_status IN ('uploaded', 'processing', 'completed', 'failed')
+     ORDER BY uploaded_at DESC;
+   - Expect: status transitions from 'uploaded' → 'processing' → 'completed'
+     (or 'failed' on error)
+
+4. VERIFY ANALYSES TABLE:
+   - Check analyses:
+     SELECT a.*, i.filename, i.processing_status
+     FROM analyses a
+     JOIN images i ON a.image_id = i.id
+     ORDER BY a.processed_at DESC
+     LIMIT 10;
+   - Expect: at least one row linked to the new image with:
+     - ndvi_mean, savi_mean, gndvi_mean populated
+     - health_status, health_score, confidence populated
+     - processed_at timestamp set
+
+5. VERIFY /api/images ENDPOINT:
+   - Call via curl or browser: GET http://localhost:5050/api/images
+   - Confirm that the image appears with:
+     - processingStatus: 'completed' (after processing)
+     - A non-null analysis object containing:
+       - ndvi: { mean, std, min, max }
+       - savi: { mean, std, min, max }
+       - gndvi: { mean, std, min, max }
+       - healthStatus, healthScore, confidence
+       - modelVersion (if ML model was used)
+
+6. VERIFY MODEL STATUS:
+   - Ensure there is at least one model file in:
+     - python_processing/models/multi_crop/*_final.h5 OR
+     - python_processing/models/onion_crop_health_model.h5
+   - Hit GET http://localhost:5050/api/ml/status:
+     - Expect: model_available: true
+     - model_type: 'multi_crop' or 'single_crop'
+     - model_path: absolute path to model file
+     - model_version: version string
+   - Confirm UI:
+     - On ML page, ModelTraining component shows "Model Status: Available"
+     - Displays model type and version
+
+7. FAILURE HANDLING TEST:
+   - Intentionally break one image (e.g., delete the file after upload)
+   - Upload the image and watch worker logs
+   - Confirm:
+     - Worker logs error with stack trace
+     - images.processing_status becomes 'failed'
+     - No stuck 'processing' rows remain
+   - Check database:
+     SELECT id, filename, processing_status
+     FROM images
+     WHERE processing_status = 'processing';
+     - Expect: 0 rows (or rows older than 5 minutes that will be recovered)
+
+8. RECOVERY MECHANISM TEST:
+   - Manually set an image to 'processing' status:
+     UPDATE images SET processing_status = 'processing', updated_at = NOW() - INTERVAL '10 minutes'
+     WHERE id = '<some-image-id>';
+   - Restart the worker
+   - Verify:
+     - Worker logs: "Found X image(s) stuck in 'processing' status"
+     - Status is reset to 'uploaded'
+     - Image is processed in the next poll cycle
+
+================================================================================
+"""
 
 
 def main():
@@ -500,10 +677,20 @@ def main():
     repair_image_paths()
     logger.info("-" * 60)
     
+    # Recover any images stuck in 'processing' status
+    logger.info("-" * 60)
+    logger.info("Recovering stuck images...")
+    recover_stuck_images()
+    logger.info("-" * 60)
+    
     # Load model once at startup
     logger.info("-" * 60)
     logger.info("Loading ML model...")
-    load_model_once()
+    model_cache = load_model_once()
+    if model_cache['model'] is not None:
+        logger.info(f"Model loaded: {model_cache['model_type']} at {model_cache['model_path']}")
+    else:
+        logger.warning("No model loaded - will use vegetation index analysis only")
     logger.info("-" * 60)
     
     logger.info("Worker is running. Press Ctrl+C to stop.")
@@ -511,13 +698,24 @@ def main():
     
     consecutive_errors = 0
     max_errors = 10
+    last_recovery_time = time.time()
+    recovery_interval = 300  # Run recovery every 5 minutes
     
     while running:
         try:
+            # Periodically recover stuck images
+            current_time = time.time()
+            if current_time - last_recovery_time >= recovery_interval:
+                logger.info("-" * 60)
+                logger.info("Running periodic recovery check...")
+                recover_stuck_images()
+                last_recovery_time = current_time
+                logger.info("-" * 60)
+            
             processed = process_batch()
             
             if processed > 0:
-                logger.info(f"Processed {processed} image(s) in this batch")
+                logger.info(f"[POLL] Processed {processed} image(s) in this batch")
                 consecutive_errors = 0
             else:
                 # No images to process, sleep longer

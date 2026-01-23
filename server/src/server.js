@@ -337,16 +337,20 @@ app.post('/api/telemetry', async (req, res) => {
 // ML Status endpoint - Check if model is available on EC2 worker
 app.get('/api/ml/status', async (req, res) => {
   try {
-    // Get worker directory (python_processing) - assume it's at the same level as server
+    // Get worker directory (python_processing) - resolve paths robustly
     const serverDir = path.dirname(__dirname);
     const projectRoot = path.dirname(serverDir);
-    const pythonProcessingDir = path.join(projectRoot, 'python_processing');
+    const pythonProcessingDir = path.resolve(projectRoot, 'python_processing');
+    const modelsBaseDir = path.resolve(pythonProcessingDir, 'models');
+    
+    console.log('[ML STATUS] Checking models in:', modelsBaseDir);
+    console.log('[ML STATUS] Python processing dir:', pythonProcessingDir);
     
     // Check environment variables (from worker's perspective)
     const useMultiCrop = process.env.USE_MULTI_CROP_MODEL || 'true';
     const multiCropModelPath = process.env.MULTI_CROP_MODEL_PATH;
-    const multiCropModelDir = process.env.MULTI_CROP_MODEL_DIR || path.join(pythonProcessingDir, 'models', 'multi_crop');
-    const singleCropModelPath = process.env.ONION_MODEL_PATH || path.join(pythonProcessingDir, 'models', 'onion_crop_health_model.h5');
+    const multiCropModelDir = process.env.MULTI_CROP_MODEL_DIR || path.resolve(modelsBaseDir, 'multi_crop');
+    const singleCropModelPath = process.env.ONION_MODEL_PATH || path.resolve(modelsBaseDir, 'onion_crop_health_model.h5');
     const modelChannels = process.env.MODEL_CHANNELS || '3';
     
     let modelAvailable = false;
@@ -359,21 +363,31 @@ app.get('/api/ml/status', async (req, res) => {
       let multiCropPath = multiCropModelPath;
       
       // If path not specified, try to find latest model in directory
-      if (!multiCropPath && fs.existsSync(multiCropModelDir)) {
-        try {
-          const files = fs.readdirSync(multiCropModelDir);
-          const modelFiles = files.filter(f => f.endsWith('_final.h5'));
-          if (modelFiles.length > 0) {
-            // Get most recently modified
-            const modelPaths = modelFiles.map(f => path.join(multiCropModelDir, f));
-            multiCropPath = modelPaths.reduce((latest, current) => {
-              const latestTime = fs.statSync(latest).mtime;
-              const currentTime = fs.statSync(current).mtime;
-              return currentTime > latestTime ? current : latest;
-            });
+      if (!multiCropPath || !fs.existsSync(multiCropPath)) {
+        const resolvedMultiCropDir = path.resolve(multiCropModelDir);
+        console.log('[ML STATUS] Checking multi-crop directory:', resolvedMultiCropDir);
+        
+        if (fs.existsSync(resolvedMultiCropDir)) {
+          try {
+            const files = fs.readdirSync(resolvedMultiCropDir);
+            const modelFiles = files.filter(f => f.endsWith('_final.h5'));
+            console.log('[ML STATUS] Found model files:', modelFiles);
+            
+            if (modelFiles.length > 0) {
+              // Get most recently modified
+              const modelPaths = modelFiles.map(f => path.join(resolvedMultiCropDir, f));
+              multiCropPath = modelPaths.reduce((latest, current) => {
+                const latestTime = fs.statSync(latest).mtime;
+                const currentTime = fs.statSync(current).mtime;
+                return currentTime > latestTime ? current : latest;
+              });
+              console.log('[ML STATUS] Selected model:', multiCropPath);
+            }
+          } catch (e) {
+            console.warn('[ML STATUS] Error reading multi-crop model directory:', e.message);
           }
-        } catch (e) {
-          console.warn('Error reading multi-crop model directory:', e.message);
+        } else {
+          console.warn('[ML STATUS] Multi-crop model directory does not exist:', resolvedMultiCropDir);
         }
       }
       
@@ -391,23 +405,32 @@ app.get('/api/ml/status', async (req, res) => {
             const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
             modelVersion = metadata.model_version || metadata.training_date || path.basename(multiCropPath);
           } else {
-            modelVersion = path.basename(multiCropPath);
+            modelVersion = path.basename(multiCropPath).replace('_final.h5', '');
           }
         } catch (e) {
-          modelVersion = path.basename(multiCropPath);
+          modelVersion = path.basename(multiCropPath).replace('_final.h5', '');
         }
+        console.log('[ML STATUS] Multi-crop model detected:', modelPath, 'version:', modelVersion);
       }
     }
     
     // Fallback to single-crop model
-    if (!modelAvailable && fs.existsSync(singleCropModelPath)) {
-      modelAvailable = true;
-      modelType = 'single_crop';
-      modelPath = singleCropModelPath;
-      modelVersion = path.basename(singleCropModelPath);
+    if (!modelAvailable) {
+      const resolvedSingleCropPath = path.resolve(singleCropModelPath);
+      console.log('[ML STATUS] Checking single-crop model:', resolvedSingleCropPath);
+      
+      if (fs.existsSync(resolvedSingleCropPath)) {
+        modelAvailable = true;
+        modelType = 'single_crop';
+        modelPath = resolvedSingleCropPath;
+        modelVersion = path.basename(singleCropModelPath);
+        console.log('[ML STATUS] Single-crop model detected:', modelPath);
+      } else {
+        console.warn('[ML STATUS] Single-crop model not found:', resolvedSingleCropPath);
+      }
     }
     
-    res.json({
+    const response = {
       model_available: modelAvailable,
       model_type: modelType,
       model_path: modelPath,
@@ -420,14 +443,19 @@ app.get('/api/ml/status', async (req, res) => {
         MODEL_CHANNELS: modelChannels,
         ONION_MODEL_PATH: singleCropModelPath
       }
-    });
+    };
+    
+    console.log('[ML STATUS] Response:', JSON.stringify(response, null, 2));
+    res.json(response);
   } catch (error) {
-    console.error('Error checking ML status:', error);
+    console.error('[ML STATUS] Error checking model status:', error);
     res.status(500).json({ 
-      error: 'Failed to check ML status', 
+      error: 'Failed to check model status', 
       details: error.message,
       model_available: false,
-      model_type: 'none'
+      model_type: 'none',
+      model_path: null,
+      model_version: null
     });
   }
 });

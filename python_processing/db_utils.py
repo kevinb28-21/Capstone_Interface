@@ -64,7 +64,7 @@ def get_pending_images(limit: int = 10) -> List[Dict]:
     Get images that are pending processing
     
     Returns:
-        List of image records with status 'uploaded'
+        List of image records with status 'uploaded' (excludes 'processing' to avoid duplicates)
     """
     conn = None
     try:
@@ -78,9 +78,11 @@ def get_pending_images(limit: int = 10) -> List[Dict]:
                 ORDER BY uploaded_at ASC
                 LIMIT %s
             """, (limit,))
-            return cur.fetchall()
+            results = cur.fetchall()
+            logger.debug(f"get_pending_images: Found {len(results)} images with status 'uploaded'")
+            return results
     except Exception as e:
-        logger.error(f"Error fetching pending images: {e}")
+        logger.error(f"Error fetching pending images: {e}", exc_info=True)
         return []
     finally:
         if conn:
@@ -663,9 +665,16 @@ def save_analysis(image_id: str, analysis_data: Dict) -> bool:
                         ))
             
             conn.commit()
+            
+            # Get the analysis ID for logging
+            cur.execute("SELECT id FROM analyses WHERE image_id = %s", (image_id,))
+            analysis_result = cur.fetchone()
+            analysis_id = analysis_result[0] if analysis_result else None
+            logger.info(f"[{image_id}] Saved analysis row with id {analysis_id}")
+            
             return True
     except Exception as e:
-        logger.error(f"Error saving analysis: {e}")
+        logger.error(f"Error saving analysis for image {image_id}: {e}", exc_info=True)
         if conn:
             conn.rollback()
         return False
