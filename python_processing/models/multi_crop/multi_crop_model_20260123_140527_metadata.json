@@ -1,0 +1,29 @@
+{
+  "model_version": "multi_crop_model_20260123_140527",
+  "training_date": "2026-01-23T14:05:27.066792",
+  "health_classes": [
+    "very_healthy",
+    "healthy",
+    "moderate",
+    "poor",
+    "very_poor",
+    "diseased",
+    "stressed",
+    "weeds",
+    "unknown"
+  ],
+  "crop_types": [
+    "cherry_tomato",
+    "onion",
+    "corn",
+    "unknown"
+  ],
+  "input_size": [
+    224,
+    224
+  ],
+  "channels": 3,
+  "architecture": "band-aware multi-crop",
+  "description": "Model placeholder - requires TensorFlow with Python 3.11/3.12 for full training",
+  "status": "placeholder"
+}

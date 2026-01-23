@@ -1,0 +1,29 @@
+{
+  "model_version": "demo_model",
+  "training_date": "2026-01-23T14:05:48.866714",
+  "health_classes": [
+    "very_healthy",
+    "healthy",
+    "moderate",
+    "poor",
+    "very_poor",
+    "diseased",
+    "stressed",
+    "weeds",
+    "unknown"
+  ],
+  "crop_types": [
+    "cherry_tomato",
+    "onion",
+    "corn",
+    "unknown"
+  ],
+  "input_size": [
+    224,
+    224
+  ],
+  "channels": 3,
+  "architecture": "band-aware multi-crop",
+  "description": "Demo model - processes images with vegetation indices (NDVI/SAVI/GNDVI)",
+  "status": "demo"
+}

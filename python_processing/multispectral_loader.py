@@ -269,7 +269,7 @@ def validate_band_schema(band_schema: Dict, required_bands: List[str] = None) ->
 
 def load_multispectral_image(
     image_path: str,
-    target_size: Tuple[int, int] = (224, 224),
+    target_size: Optional[Tuple[int, int]] = (224, 224),
     dataset_name: Optional[str] = None,
     band_order: Optional[List[str]] = None,
     require_nir: bool = False
@@ -426,8 +426,9 @@ def load_multispectral_image(
             with rasterio.open(str(image_path)) as src:
                 img_bands = []
                 num_bands = min(src.count, band_schema['band_count'])
+                resize_shape = target_size if target_size is not None else (img.shape[0], img.shape[1])
                 for i in range(1, num_bands + 1):
-                    band = src.read(i, out_shape=(target_size[0], target_size[1]), 
+                    band = src.read(i, out_shape=resize_shape, 
                                    resampling=Resampling.bilinear)
                     img_bands.append(band)
                 
@@ -470,8 +471,8 @@ def load_multispectral_image(
                 elif img.shape[2] == 4:
                     img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
             
-            # Resize
-            if img.shape[:2] != target_size:
+            # Resize (only if target_size is specified)
+            if target_size is not None and img.shape[:2] != target_size:
                 img = cv2.resize(img, target_size, interpolation=cv2.INTER_LINEAR)
             
             # Normalize

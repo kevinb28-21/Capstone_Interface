@@ -784,8 +784,15 @@ def analyze_crop_health(image_path: str, use_tensorflow: bool = False,
     """
     import os
     
-    # Preprocess
-    processed_path = preprocess_image(image_path)
+    # Preprocess (skip if already processed or if preprocessing fails)
+    try:
+        if image_path.endswith('.processed.jpg') or image_path.endswith('.processed.png'):
+            processed_path = image_path  # Already processed
+        else:
+            processed_path = preprocess_image(image_path)
+    except Exception as e:
+        logger.warning(f"Preprocessing failed, using original image: {e}")
+        processed_path = image_path  # Fallback to original
     
     # Calculate NDVI
     ndvi_results = calculate_ndvi(processed_path)
@@ -883,25 +890,38 @@ def analyze_crop_health(image_path: str, use_tensorflow: bool = False,
     
     # Fallback to NDVI-based classification if TensorFlow not used
     if not health_status:
-        mean_ndvi = ndvi_results.get('ndvi_mean', 0)
-        if mean_ndvi < 0.2:
-            health_status = "very_poor"
-            summary = "Critical attention needed"
-        elif mean_ndvi < 0.4:
-            health_status = "poor"
-            summary = "Attention needed"
-        elif mean_ndvi < 0.6:
-            health_status = "moderate"
-            summary = "Moderate health"
-        elif mean_ndvi < 0.8:
-            health_status = "healthy"
-            summary = "Healthy"
-        else:
-            health_status = "very_healthy"
-            summary = "Very healthy"
+        mean_ndvi = ndvi_results.get('ndvi_mean')
         
-        # Calculate health score from NDVI
-        health_score = min(1.0, max(0.0, (mean_ndvi + 0.2) / 1.0))
+        # Handle case where NDVI cannot be calculated (RGB images without NIR)
+        if mean_ndvi is None:
+            # For RGB images, use a default moderate health status
+            # This allows the system to still process and display images
+            health_status = "moderate"
+            summary = "RGB image processed - NIR band required for precise vegetation index analysis"
+            health_score = 0.5  # Default moderate score
+            confidence = 0.5  # Lower confidence for RGB-only analysis
+        else:
+            # Use NDVI for classification
+            if mean_ndvi < 0.2:
+                health_status = "very_poor"
+                summary = "Critical attention needed"
+            elif mean_ndvi < 0.4:
+                health_status = "poor"
+                summary = "Attention needed"
+            elif mean_ndvi < 0.6:
+                health_status = "moderate"
+                summary = "Moderate health"
+            elif mean_ndvi < 0.8:
+                health_status = "healthy"
+                summary = "Healthy"
+            else:
+                health_status = "very_healthy"
+                summary = "Very healthy"
+            
+            # Calculate health score from NDVI
+            health_score = min(1.0, max(0.0, (mean_ndvi + 0.2) / 1.0))
+            confidence = 0.7  # Higher confidence when NDVI is available
+        
         analysis_type = 'ndvi_savi_gndvi'
     
     # Combine results
