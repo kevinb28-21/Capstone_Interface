@@ -1,0 +1,174 @@
+Fix 502 Bad Gateway Error
+
+Quick Fix
+
+SSH into your EC2 instance and run:
+
+Make scripts executable
+chmod +x ~/CapstoneInterface/deploy/fix-502-bad-gateway.sh
+chmod +x ~/CapstoneInterface/deploy/diagnose-502.sh
+
+Run diagnostic first (optional)
+bash ~/CapstoneInterface/deploy/diagnose-502.sh
+
+Run the fix script
+bash ~/CapstoneInterface/deploy/fix-502-bad-gateway.sh
+
+Manual Fix Steps
+
+If the script doesn't work, follow these steps:
+
+Step 1: Check PM2 Status
+
+pm2 status
+pm2 list
+
+If drone-backend is not running or shows errored:
+
+cd ~/CapstoneInterface/server
+pm2 restart drone-backend
+OR if it doesn't exist:
+pm2 start ecosystem.config.js
+pm2 save
+
+Step 2: Check Backend Logs
+
+pm2 logs drone-backend --lines 50
+
+Look for errors like:
+  - Database connection failures
+  - Port already in use
+  - Missing environment variables
+  - Module import errors
+
+Step 3: Test Backend Directly
+
+curl http://localhost:5050/api/health
+
+If this fails, the backend isn't running or crashed.
+
+Step 4: Check Port 5050
+
+sudo netstat -tlnp | grep 5050
+OR
+sudo ss -tlnp | grep 5050
+
+If nothing shows up, the backend isn't listening.
+
+Step 5: Restart Services
+
+Restart backend
+pm2 restart drone-backend
+
+Restart nginx
+sudo systemctl restart nginx
+
+Check status
+pm2 status
+sudo systemctl status nginx
+
+Step 6: Check Nginx Configuration
+
+Test nginx config
+sudo nginx -t
+
+Check nginx error logs
+sudo tail -f /var/log/nginx/error.log
+
+Step 7: Verify Environment Variables
+
+Check if .env file exists
+cat ~/CapstoneInterface/server/.env
+
+Should have at least:
+PORT=5050
+DBHOST=localhost
+DBNAME=droneanalytics
+DBUSER=...
+DBPASSWORD=...
+
+Step 8: Ensure PM2 Starts on Boot
+
+pm2 startup
+Follow the command it outputs
+pm2 save
+
+Common Issues
+
+Issue 1: Backend Crashed Due to Database Error
+
+Solution:
+Check database is running
+sudo systemctl status postgresql
+
+Check database connection in .env
+cat ~/CapstoneInterface/server/.env | grep DB
+
+Restart database if needed
+sudo systemctl restart postgresql
+
+Issue 2: Port 5050 Already in Use
+
+Solution:
+Find what's using port 5050
+sudo lsof -i :5050
+OR
+sudo fuser 5050/tcp
+
+Kill the process if it's not PM2
+sudo kill -9 <PID>
+
+Issue 3: Nginx Can't Connect to Backend
+
+Solution:
+Verify nginx config points to localhost:5050
+sudo cat /etc/nginx/sites-available/drone-backend | grep proxypass
+
+Should show: proxypass http://localhost:5050;
+
+Restart nginx
+sudo systemctl restart nginx
+
+Issue 4: Backend Not Starting on Server Reboot
+
+Solution:
+Enable PM2 startup
+pm2 startup systemd -u ubuntu --hp /home/ubuntu
+Run the command it outputs
+pm2 save
+
+Verification
+
+After fixing, verify everything works:
+  Check PM2
+pm2 status
+  Check port
+sudo netstat -tlnp | grep 5050
+  Test backend
+curl http://localhost:5050/api/health
+  Test through nginx (from EC2)
+curl http://localhost/api/health
+  Test from external (replace with your EC2 IP)
+curl http://18.223.169.5/api/health
+
+Still Having Issues?
+  Check all logs:
+      pm2 logs drone-backend --lines 100
+   sudo tail -100 /var/log/nginx/error.log
+  Verify file paths:
+      ls -la ~/CapstoneInterface/server/src/server.js
+   ls -la ~/CapstoneInterface/server/ecosystem.config.js
+  Check file permissions:
+      ls -la ~/CapstoneInterface/server/
+  Reinstall dependencies:
+      cd ~/Capstone_Interface/server
+   npm install --production
+   
+Security Note
+
+The 502 error is NOT related to EC2 security groups. It's an internal issue where nginx can't connect to the Node.js backend on localhost:5050.
+
+However, you should still secure your EC2:
+  - Restrict SSH (port 22) to your IP only
+  - Use HTTPS/SSL for production
+  - Don't expose database ports publicly

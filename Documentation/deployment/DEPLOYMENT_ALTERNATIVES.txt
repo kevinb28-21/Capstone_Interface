@@ -1,0 +1,111 @@
+Deployment Alternatives
+
+If the automated deployment script fails due to SSH connection issues, use one of these alternatives:
+
+Option 1: EC2 Instance Connect (Recommended - No SSH Setup Needed)
+  Go to AWS Console → EC2 → Instances
+  Select your instance: i-0ce6adb51ca9c5a4d (CropView)
+  Click "Connect" button
+  Select "EC2 Instance Connect" tab
+  Click "Connect" (opens browser-based terminal)
+  Run these commands:
+
+cd ~/CapstoneInterface
+git pull origin main
+chmod +x deploy/fix-ec2-processing.sh
+./deploy/fix-ec2-processing.sh
+
+Advantages:
+  - ✅ No SSH key needed
+  - ✅ Works from any browser
+  - ✅ No security group configuration needed
+  - ✅ Works even if public IP changed
+
+Option 2: AWS Systems Manager Session Manager
+  Ensure Session Manager is set up (see deploy/setup-session-manager.md)
+  Install AWS CLI and Session Manager plugin locally
+  Run:
+
+aws ssm start-session --target i-0ce6adb51ca9c5a4d
+  Then run the same commands as Option 1
+
+Option 3: Fix SSH Connection First
+
+If you prefer SSH, fix the connection issue:
+
+Check Instance Status
+  AWS Console → EC2 → Instances
+  Verify instance is "Running"
+  Check Public IPv4 address (may have changed)
+
+Check Security Group
+  Select instance → Security tab
+  Click security group
+  Verify Inbound Rules allow:
+  - Type: SSH
+  - Port: 22
+  - Source: Your IP or 0.0.0.0/0 (temporary)
+
+Update Deployment Script
+If public IP changed, update deploy/deploy-processing-fixes.sh:
+EC2HOST="ec2-NEW-IP.us-east-2.compute.amazonaws.com"
+
+Option 4: Manual File Transfer via S3
+
+If all else fails:
+  Upload files to S3:
+      aws s3 cp pythonprocessing/dbutils.py s3://ms04-image-db/deploy/dbutils.py
+   aws s3 cp pythonprocessing/backgroundworker.py s3://ms04-image-db/deploy/backgroundworker.py
+   aws s3 cp deploy/fix-ec2-processing.sh s3://ms04-image-db/deploy/fix-ec2-processing.sh
+  On EC2 (via Instance Connect):
+      cd ~/CapstoneInterface
+   aws s3 cp s3://ms04-image-db/deploy/dbutils.py pythonprocessing/
+   aws s3 cp s3://ms04-image-db/deploy/backgroundworker.py pythonprocessing/
+   aws s3 cp s3://ms04-image-db/deploy/fix-ec2-processing.sh deploy/
+   chmod +x deploy/fix-ec2-processing.sh
+   ./deploy/fix-ec2-processing.sh
+   
+Quick Reference: Commands to Run on EC2
+
+Once connected (via any method), run:
+
+Navigate to project
+cd ~/CapstoneInterface
+
+Pull latest code from GitHub
+git pull origin main
+
+Make fix script executable
+chmod +x deploy/fix-ec2-processing.sh
+
+Run the fix script
+./deploy/fix-ec2-processing.sh
+
+Check PM2 status
+pm2 status
+
+View logs
+pm2 logs --lines 50
+
+What the Fix Script Does
+
+The fix-ec2-processing.sh script will:
+  ✅ Check/create .env file with database credentials
+  ✅ Fix database file paths for failed images
+  ✅ Restart PM2 services
+  ✅ Verify everything is working
+
+Troubleshooting
+
+"git pull" fails
+  - Check if repository exists: ls -la ~/CapstoneInterface/.git
+  - If not, clone: git clone https://github.com/kevinb28-21/CapstoneInterface.git
+
+".env file not found"
+  - The script will create it automatically
+  - Edit it: nano ~/CapstoneInterface/pythonprocessing/.env
+  - Add your database password and AWS credentials
+
+"PM2 not found"
+  - Install PM2: npm install -g pm2
+  - Or start services manually

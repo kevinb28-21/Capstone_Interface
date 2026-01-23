@@ -1,0 +1,180 @@
+Complete Backend Fix Guide
+
+What Was Fixed
+  PM2 Config Format: Changed ecosystem.config.js from ES6 export default to CommonJS module.exports for better PM2 compatibility
+  Enhanced Fix Script: Updated fix-502-bad-gateway.sh to:
+  - Prefer .cjs config files (more reliable)
+  - Check for .env file and create template if missing
+  - Better error diagnosis
+  - Database connection testing
+  - Manual backend startup testing
+
+Steps to Fix on EC2
+
+Step 1: Pull Latest Changes
+
+cd ~/CapstoneInterface
+git pull origin main
+
+Step 2: Run the Fix Script
+
+bash deploy/fix-502-bad-gateway.sh
+
+This will:
+  - ✅ Check/create .env file
+  - ✅ Start/restart backend with PM2
+  - ✅ Verify port 5050 is listening
+  - ✅ Test backend health endpoint
+  - ✅ Restart nginx
+  - ✅ Show diagnostic information
+
+Step 3: If Backend Still Fails
+
+Check the logs:
+
+Check PM2 logs
+pm2 logs drone-backend --lines 50
+
+Check for common errors:
+  - Database connection errors
+  - Missing environment variables
+  - Port already in use
+  - Module import errors
+
+Step 4: Manual Diagnosis
+
+If the script doesn't work, run these manually:
+  Stop all PM2 processes
+pm2 delete all
+  Check .env file exists and has correct values
+cat ~/CapstoneInterface/server/.env
+  Try starting backend manually to see errors
+cd ~/CapstoneInterface/server
+node src/server.js
+(Press Ctrl+C after seeing errors)
+  If manual start works, use PM2 with .cjs config
+pm2 start ecosystem.config.cjs
+pm2 save
+  Verify it's running
+pm2 status
+curl http://localhost:5050/api/health
+  Restart nginx
+sudo systemctl restart nginx
+
+Common Issues and Fixes
+
+Issue 1: Database Connection Error
+
+Error in logs:
+Error: connect ECONNREFUSED 127.0.0.1:5432
+
+Fix:
+Check PostgreSQL is running
+sudo systemctl status postgresql
+
+Start if not running
+sudo systemctl start postgresql
+
+Verify database exists
+psql -U droneuser -d droneanalytics -c "SELECT 1;"
+
+Issue 2: Missing .env File
+
+Fix:
+cd ~/CapstoneInterface/server
+nano .env
+Add:
+PORT=5050
+DBHOST=localhost
+DBPORT=5432
+DBNAME=droneanalytics
+DBUSER=droneuser
+DBPASSWORD=yourpassword
+
+Issue 3: Port 5050 Already in Use
+
+Fix:
+Find what's using port 5050
+sudo lsof -i :5050
+OR
+sudo fuser 5050/tcp
+
+Kill the process (if it's not PM2)
+sudo kill -9 <PID>
+
+Restart PM2
+pm2 restart drone-backend
+
+Issue 4: PM2 Config Format Error
+
+Fix:
+Use .cjs file (CommonJS format)
+cd ~/CapstoneInterface/server
+pm2 delete drone-backend
+pm2 start ecosystem.config.cjs
+pm2 save
+
+Issue 5: Node Modules Missing
+
+Fix:
+cd ~/CapstoneInterface/server
+npm install --production
+pm2 restart drone-backend
+
+Verification Checklist
+
+After running the fix, verify:
+  - [ ] PM2 shows backend as "online": pm2 status
+  - [ ] Port 5050 is listening: sudo netstat -tlnp | grep 5050
+  - [ ] Backend health check works: curl http://localhost:5050/api/health
+  - [ ] Nginx is running: sudo systemctl status nginx
+  - [ ] Nginx can reach backend: curl http://localhost/api/health
+  - [ ] External access works: curl http://YOUR-EC2-IP/api/health
+
+After Fixing
+  Enable PM2 Startup on Boot:
+      pm2 startup
+   # Run the command it outputs
+   pm2 save
+  Monitor Logs:
+      pm2 logs drone-backend --lines 50
+  Test from Frontend:
+  - Open your Netlify frontend
+  - Try uploading an image
+  - Check if API calls work
+
+Still Having Issues?
+  Check all logs:
+      pm2 logs drone-backend --lines 100
+   sudo tail -50 /var/log/nginx/error.log
+  Verify file paths:
+      ls -la ~/CapstoneInterface/server/src/server.js
+   ls -la ~/CapstoneInterface/server/ecosystem.config.cjs
+  Check Node.js version:
+      node --version  # Should be v18 or v20
+  Reinstall dependencies:
+      cd ~/CapstoneInterface/server
+   rm -rf nodemodules
+   npm install --production
+   
+Refresh Steps
+
+After fixing, you may need to:
+  Clear browser cache (if testing from frontend)
+  Restart nginx (already done by script)
+  Wait 10-30 seconds for services to fully start
+  Test from different locations:
+  - Direct backend: curl http://localhost:5050/api/health
+  - Through nginx: curl http://localhost/api/health
+  - External: curl http://YOUR-EC2-IP/api/health
+
+Summary
+
+The main fix was:
+  - ✅ Changed PM2 config to CommonJS format (more reliable)
+  - ✅ Enhanced fix script with better error handling
+  - ✅ Added .env file checking and template creation
+  - ✅ Added database connection testing
+  - ✅ Better diagnostic output
+
+Run bash deploy/fix-502-bad-gateway.sh on EC2 to apply all fixes automatically.

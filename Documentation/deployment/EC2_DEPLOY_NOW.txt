@@ -1,0 +1,79 @@
+🚀 Deploy to EC2 - Quick Instructions
+
+⚡ Fastest Method: EC2 Instance Connect
+
+Since SSH isn't working, use EC2 Instance Connect (works from browser, no setup needed):
+
+Step 1: Open AWS Console
+  Go to: https://console.aws.amazon.com/ec2/
+  Click EC2 → Instances
+  Find your instance (search for ec2-18-117-90-212 or look for "CropView")
+
+Step 2: Connect
+  Select your instance
+  Click "Connect" button (top right)
+  Choose "EC2 Instance Connect" tab
+  Click "Connect" (opens browser terminal)
+
+Step 3: Run Deployment
+Copy and paste this entire command into the terminal:
+
+cd ~/CapstoneInterface && git pull origin main && cd server && npm install --production && cd .. && pm2 restart all && pm2 save && pm2 status && echo "✅ Deployment complete!"
+
+OR run the deployment script:
+
+cd ~/CapstoneInterface
+git pull origin main
+chmod +x deploy/update-backend-cors-remote.sh
+bash deploy/update-backend-cors-remote.sh
+
+Step 4: Verify
+After deployment completes, verify:
+
+Check services
+pm2 status
+
+Check logs
+pm2 logs --lines 20
+
+Test API
+curl http://localhost:5050/api/health
+
+📋 What Gets Deployed
+
+✅ CORS Fixes: Backend now allows all *.netlify.app domains automatically
+✅ Latest Code: All changes from GitHub
+✅ Dependencies: Updated Node.js packages
+✅ Services: PM2 restarted with new configuration
+
+🔧 Alternative: One-Line Command
+
+If you prefer a single command, use this:
+
+cd ~/Capstone_Interface && git pull origin main && cd server && npm install --production && cd .. && pm2 restart all && pm2 save && pm2 logs --lines 10 --nostream
+
+✅ Verification Checklist
+
+After deployment, check:
+  - [ ] pm2 status shows all services running (green)
+  - [ ] curl http://localhost:5050/api/health returns JSON
+  - [ ] No errors in pm2 logs
+  - [ ] CORS configuration includes Netlify support
+
+🆘 Troubleshooting
+
+If git pull fails:
+git fetch origin main
+git reset --hard origin/main
+
+If PM2 restart fails:
+pm2 delete all
+cd server
+pm2 start ecosystem.config.cjs
+pm2 save
+
+If backend doesn't respond:
+pm2 logs --lines 100
+Check for errors
+
+Ready? Open EC2 Instance Connect and run the deployment command! 🚀

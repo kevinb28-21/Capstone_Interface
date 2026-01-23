@@ -1,0 +1,180 @@
+ML Model Training Guide
+
+This guide covers training machine learning models for onion crop health classification.
+
+Overview
+
+The ML training pipeline creates TensorFlow models that classify onion crop images into 8 health categories using vegetation indices (NDVI, SAVI, GNDVI) and image features.
+
+Health Categories
+  veryhealthy - NDVI > 0.8, SAVI > 0.7, GNDVI > 0.75
+  healthy - NDVI 0.6-0.8, SAVI 0.5-0.7, GNDVI 0.6-0.75
+  moderate - NDVI 0.4-0.6, SAVI 0.3-0.5, GNDVI 0.4-0.6
+  poor - NDVI 0.2-0.4, SAVI 0.15-0.3, GNDVI 0.2-0.4
+  verypoor - NDVI < 0.2, SAVI < 0.15, GNDVI < 0.2
+  diseased - Fungal/bacterial/viral diseases
+  stressed - Water/nutrient/heat stress
+  weeds - Significant weed infestation
+
+Dataset Organization
+
+Option 1: Subfolder Structure (Recommended)
+
+sampleimages/
+  veryhealthy/
+    img1.jpg
+    img2.jpg
+    ...
+  healthy/
+    img1.jpg
+    ...
+  moderate/
+    ...
+  poor/
+    ...
+  verypoor/
+    ...
+  diseased/
+    ...
+  stressed/
+    ...
+  weeds/
+    ...
+
+Option 2: Flat Structure with Labels
+
+sampleimages/
+  img1.jpg
+  img2.jpg
+  ...
+  labels.json
+
+labels.json format:
+{
+  "img1.jpg": "veryhealthy",
+  "img2.jpg": "healthy",
+  "img3.jpg": "moderate"
+}
+
+Training the Model
+
+Basic Training
+
+cd pythonprocessing
+python trainmodel.py ./sampleimages ./models 50
+
+Parameters:
+  - ./sampleimages - Path to image folder
+  - ./models - Output directory for saved model
+  - 50 - Number of training epochs
+
+Advanced Options
+
+Modify trainmodel.py to adjust:
+  - Batch size (default: 32)
+  - Validation split (default: 0.2)
+  - Test split (default: 0.1)
+  - Image size (default: 224x224)
+  - Model architecture
+
+Model Output
+
+After training, the following files are created:
+
+models/
+  onioncrophealthmodel.h5      # Final trained model
+  onioncropbestmodel.h5         # Best model (by validation accuracy)
+  onionclassnames.json           # Class names mapping
+  oniontraininghistory.json      # Training metrics
+  onionmodelmetadata.json        # Model metadata
+
+Using the Trained Model
+
+Automatic Loading
+
+The model is automatically loaded when:
+  - usetensorflow=True in analyzecrophealth()
+  - Model path is set via ONIONMODELPATH environment variable
+  - Model exists at default path: ./models/onioncrophealthmodel.h5
+
+Manual Loading
+
+from imageprocessor import classifycrophealthtensorflow
+
+result = classifycrophealthtensorflow(
+    'path/to/image.jpg',
+    modelpath='./models/onioncrophealthmodel.h5'
+)
+
+Training Tips
+
+Dataset Size
+  - Minimum: 200-300 images per category
+  - Recommended: 500+ images per category
+  - Total: 1,500-2,400 images minimum
+
+Image Quality
+  - High resolution (1920x1080+)
+  - Clear visibility of onion beds
+  - Various lighting conditions
+  - Different growth stages
+
+Data Augmentation
+
+The training script includes:
+  - Random horizontal flips
+  - Random rotations (±10%)
+  - Random zoom (±10%)
+  - Random brightness adjustments
+
+Model Performance
+
+Monitor:
+  - Training accuracy vs validation accuracy
+  - Overfitting (large gap between train/val)
+  - Early stopping (patience: 10 epochs)
+  - Learning rate reduction
+
+Evaluation
+
+Training Metrics
+
+Check oniontraininghistory.json:
+{
+  "loss": [...],
+  "accuracy": [...],
+  "valloss": [...],
+  "valaccuracy": [...]
+}
+
+Test Set Performance
+
+The script reports:
+  - Test loss
+  - Test accuracy
+  - Per-class performance (if available)
+
+Troubleshooting
+
+Low Accuracy
+  - Increase dataset size
+  - Balance classes (equal samples per category)
+  - Check image quality
+  - Adjust model architecture
+
+Overfitting
+  - Increase data augmentation
+  - Add more dropout
+  - Reduce model complexity
+  - Collect more training data
+
+Memory Issues
+  - Reduce batch size
+  - Reduce image size
+  - Use data generators
+  - Enable mixed precision training
+
+Related Documentation
+  - Python Processing README
+  - Onion Crop Updates
+  - Background Worker

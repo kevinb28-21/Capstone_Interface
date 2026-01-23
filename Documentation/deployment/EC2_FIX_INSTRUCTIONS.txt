@@ -1,0 +1,159 @@
+EC2 Backend Fix - Step by Step Instructions
+
+Quick Fix (Recommended)
+
+Option 1: Run the Automated Script on EC2
+  SSH into your EC2 instance:
+      ssh -i your-key.pem ubuntu@ec2-18-223-169-5.us-east-2.compute.amazonaws.com
+  Run the fix script:
+      cd ~/CapstoneInterface
+   git pull origin main
+   bash deploy/run-backend-fix-on-ec2.sh
+   
+   This script will:
+  - ✅ Pull latest code changes
+  - ✅ Check/create .env file
+  - ✅ Install/update dependencies
+  - ✅ Start backend with PM2 (using correct config format)
+  - ✅ Configure and restart nginx
+  - ✅ Test all connections
+  - ✅ Enable PM2 startup on boot
+  Follow the prompts (it will ask you to edit .env if needed)
+
+Option 2: Manual Steps
+
+If the script doesn't work, follow these manual steps:
+
+Step 1: SSH into EC2
+ssh -i your-key.pem ubuntu@ec2-18-223-169-5.us-east-2.compute.amazonaws.com
+
+Step 2: Navigate to Project
+cd ~/CapstoneInterface
+
+Step 3: Pull Latest Changes
+git pull origin main
+
+Step 4: Check/Create .env File
+cd server
+nano .env
+
+Make sure it has:
+PORT=5050
+NODEENV=production
+ORIGIN=http://localhost:5173,http://localhost:5182
+
+DBHOST=localhost
+DBPORT=5432
+DBNAME=droneanalytics
+DBUSER=droneuser
+DBPASSWORD=youractualpassword
+
+Save and exit (Ctrl+X, then Y, then Enter)
+
+Step 5: Install Dependencies
+npm install --production
+
+Step 6: Stop Old Backend
+pm2 delete drone-backend
+
+Step 7: Start Backend with PM2
+Use .cjs config (CommonJS - more reliable)
+pm2 start ecosystem.config.cjs
+
+OR if .cjs doesn't exist, use .js
+pm2 start ecosystem.config.js
+
+Save PM2 configuration
+pm2 save
+
+Step 8: Verify Backend is Running
+Check PM2 status
+pm2 status
+
+Check if port 5050 is listening
+sudo netstat -tlnp | grep 5050
+
+Test health endpoint
+curl http://localhost:5050/api/health
+
+Step 9: Restart Nginx
+sudo systemctl restart nginx
+sudo systemctl status nginx
+
+Step 10: Test Through Nginx
+curl http://localhost/api/health
+
+Step 11: Enable PM2 Startup on Boot
+pm2 startup
+Run the command it outputs (usually something like):
+sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
+pm2 save
+
+Verification
+
+After running the fix, verify everything works:
+  PM2 shows backend as "online"
+pm2 status
+  Port 5050 is listening
+sudo netstat -tlnp | grep 5050
+  Backend responds directly
+curl http://localhost:5050/api/health
+  Backend responds through nginx
+curl http://localhost/api/health
+  Nginx is running
+sudo systemctl status nginx
+
+Troubleshooting
+
+Backend Not Starting
+
+Check logs:
+pm2 logs drone-backend --lines 50
+
+Common issues:
+  - Database connection error: Check PostgreSQL is running
+    sudo systemctl status postgresql
+  sudo systemctl start postgresql
+  - Missing .env: Create it (see Step 4 above)
+  - Port already in use: Kill the process
+    sudo lsof -i :5050
+  sudo kill -9 <PID>
+  
+Nginx Still Shows 502
+  Check nginx error logs:
+      sudo tail -f /var/log/nginx/error.log
+  Verify nginx config:
+      sudo nginx -t
+  Check if backend is actually running:
+      pm2 status
+   curl http://localhost:5050/api/health
+   
+PM2 Config Issues
+
+If PM2 can't read the config:
+Use .cjs format (CommonJS)
+cd ~/Capstone_Interface/server
+pm2 delete drone-backend
+pm2 start ecosystem.config.cjs
+pm2 save
+
+After Fixing
+  Test from your frontend (Netlify)
+  Monitor logs for a few minutes:
+      pm2 logs drone-backend
+  Check external access:
+      # Get your EC2 IP
+   curl http://169.254.169.254/latest/meta-data/public-ipv4
+   
+   # Test from external (replace with your IP)
+   curl http://YOUR-EC2-IP/api/health
+   
+Summary
+
+The automated script (run-backend-fix-on-ec2.sh) handles all these steps automatically. Just:
+  SSH into EC2
+  Run: bash deploy/run-backend-fix-on-ec2.sh
+  Follow prompts
+  Done!
+
+If you encounter any issues, check the logs and refer to the troubleshooting section above.

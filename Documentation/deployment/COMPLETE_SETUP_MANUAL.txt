@@ -1,0 +1,144 @@
+Complete Setup Manually on EC2
+
+The automated setup started but failed at git clone. Here's how to complete it:
+
+Option 1: Transfer Code from Local Machine (Recommended)
+
+Run this from your local machine:
+
+cd ~/Desktop/Projects/CapstoneInterface
+bash deploy/transfer-and-setup.sh
+
+This will:
+  Create a tarball of your code
+  Transfer it to EC2
+  Extract it
+  Continue with the setup
+
+Option 2: Complete Setup Manually on EC2
+
+Step 1: SSH into EC2
+ssh -i ~/Downloads/MS04ID.pem ubuntu@ec2-18-117-90-212.us-east-2.compute.amazonaws.com
+
+Step 2: Transfer Code from Local Machine
+
+From your local machine (in a new terminal):
+cd ~/Desktop/Projects/CapstoneInterface
+tar --exclude='nodemodules' --exclude='venv' --exclude='.git' -czf - . | \
+  ssh -i ~/Downloads/MS04ID.pem ubuntu@ec2-18-117-90-212.us-east-2.compute.amazonaws.com \
+  "cd ~ && tar -xzf -"
+
+Step 3: Continue Setup on EC2
+
+Once code is transferred, on EC2:
+cd ~/CapstoneInterface
+
+The setup script already installed dependencies, so continue from database setup
+Database password was saved to ~/dbpassword.txt
+DBPASSWORD=$(cat ~/dbpassword.txt | grep "SAVE THIS PASSWORD" | awk '{print $4}')
+
+Setup Node.js backend
+cd ~/CapstoneInterface/server
+npm install --production
+
+Create .env file
+cat > .env <<EOF
+PORT=5050
+NODEENV=production
+ORIGIN=http://localhost:5173,http://localhost:5182,https://cropview.netlify.app
+
+DBHOST=localhost
+DBPORT=5432
+DBNAME=droneanalytics
+DBUSER=droneuser
+DBPASSWORD=$DBPASSWORD
+EOF
+
+Setup Python environment
+cd ~/CapstoneInterface/pythonprocessing
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install gunicorn
+deactivate
+
+Create .env file for Python
+cat > .env <<EOF
+FLASKPORT=5001
+FLASKDEBUG=False
+
+DBHOST=localhost
+DBPORT=5432
+DBNAME=droneanalytics
+DBUSER=droneuser
+DBPASSWORD=$DBPASSWORD
+
+UPLOADFOLDER=./uploads
+PROCESSEDFOLDER=./processed
+WORKERPOLLINTERVAL=10
+WORKERBATCHSIZE=5
+EOF
+
+mkdir -p uploads processed models logs
+
+Run database migrations
+export PGPASSWORD=$DBPASSWORD
+psql -U droneuser -d droneanalytics -h localhost -f server/database/schema.sql
+psql -U droneuser -d droneanalytics -h localhost -f pythonprocessing/databasemigrationaddgndvi.sql
+unset PGPASSWORD
+
+Start services with PM2
+cd ~/CapstoneInterface/server
+mkdir -p logs
+pm2 start ecosystem.config.cjs
+pm2 save
+
+cd ~/CapstoneInterface/pythonprocessing
+mkdir -p logs
+pm2 start ecosystem.config.cjs
+pm2 start worker.config.cjs
+pm2 save
+
+Setup PM2 startup
+pm2 startup systemd -u ubuntu --hp /home/ubuntu | grep "sudo" | bash
+pm2 save
+
+Configure nginx
+sudo cp ~/CapstoneInterface/deploy/nginx.conf /etc/nginx/sites-available/drone-backend
+sudo ln -sf /etc/nginx/sites-available/drone-backend /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl restart nginx
+
+Verify
+sleep 5
+pm2 list
+curl http://localhost:5050/api/health
+curl http://localhost/api/health
+
+Quick Check
+
+After setup, verify everything works:
+
+On EC2
+pm2 list  # Should show 3 services running
+curl http://localhost:5050/api/health  # Should return JSON
+curl http://localhost/api/health  # Should return JSON through nginx
+
+From local machine
+curl http://18.117.90.212/api/health  # Should return JSON
+
+If Services Don't Start
+
+Check logs
+pm2 logs drone-backend
+pm2 logs flask-api
+pm2 logs background-worker
+
+Restart services
+pm2 restart all
+
+Check database connection
+cat ~/CapstoneInterface/server/.env | grep DBPASSWORD
+cat ~/db_password.txt

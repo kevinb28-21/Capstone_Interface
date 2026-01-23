@@ -1,0 +1,135 @@
+EC2 Backend Update Instructions
+
+Quick Update (EC2 Instance Connect - Recommended)
+
+Since SSH may not be working, use EC2 Instance Connect:
+  Go to AWS Console:
+  - Navigate to EC2 → Instances
+  - Select instance: i-0ce6adb51ca9c5a4d (CropView)
+  - Click "Connect" button
+  Choose EC2 Instance Connect:
+  - Select "EC2 Instance Connect" tab
+  - Click "Connect" (opens browser terminal)
+  Run these commands:
+      cd ~/CapstoneInterface
+   git pull origin main
+   chmod +x deploy/fix-ec2-processing.sh
+   ./deploy/fix-ec2-processing.sh
+  Verify services are running:
+      pm2 status
+   pm2 logs --lines 20
+   
+What Gets Updated
+
+The update script will:
+  - ✅ Pull latest code from GitHub (all fixes included)
+  - ✅ Update Node.js dependencies (npm install)
+  - ✅ Update Python dependencies (pip install -r requirements.txt)
+  - ✅ Fix image file paths in database (auto-repair)
+  - ✅ Restart PM2 services (Node.js backend, Python worker, Flask API)
+  - ✅ Verify everything is working
+
+Automated Update (If SSH Works)
+
+If SSH connection is working, you can use:
+
+./deploy/update-ec2-complete.sh
+
+This script will:
+  - Test SSH connection first
+  - Sync all backend files
+  - Run the fix script remotely
+  - Restart all services
+
+Manual Update Steps
+
+If automated scripts fail, update manually:
+  Connect to EC2 (via Instance Connect or SSH)
+cd ~/CapstoneInterface
+  Pull latest code
+git pull origin main
+  Update Node.js dependencies
+cd server
+npm install --production
+cd ..
+  Update Python dependencies
+cd pythonprocessing
+source venv/bin/activate
+pip install -r requirements.txt --quiet
+deactivate
+cd ..
+  Fix image paths (if needed)
+chmod +x deploy/fix-ec2-processing.sh
+./deploy/fix-ec2-processing.sh
+  Restart services
+pm2 restart all
+pm2 save
+  Check status
+pm2 status
+pm2 logs --lines 50
+
+Verify Update Success
+
+After updating, verify:
+  Check PM2 services:
+      pm2 status
+      Should show: nodejs-backend, flask-api, background-worker all running
+  Check API health:
+      curl http://localhost:5050/api/health
+      Should return: {"status":"ok","database":"connected",...}
+  Check worker logs:
+      pm2 logs background-worker --lines 20
+      Should show: "Background Image Processing Worker Starting" and "Repaired X image file path(s)"
+  Test from frontend:
+  - Go to your Netlify site
+  - Try uploading an image
+  - Check that processing completes successfully
+
+Troubleshooting
+
+Git Pull Fails
+If repository doesn't exist or is corrupted
+cd ~
+rm -rf CapstoneInterface
+git clone https://github.com/kevinb28-21/CapstoneInterface.git
+cd CapstoneInterface
+
+PM2 Not Found
+npm install -g pm2
+pm2 startup
+pm2 save
+
+Services Not Starting
+Check logs
+pm2 logs
+
+Restart all
+pm2 restart all
+
+If still failing, check .env files
+cat pythonprocessing/.env
+cat server/.env
+
+Database Connection Issues
+Verify PostgreSQL is running
+sudo systemctl status postgresql
+
+Check database exists
+psql -U droneuser -d droneanalytics -c "SELECT 1;"
+
+What's Fixed in This Update
+  Image Processing:
+  - Always saves local filepath (even with S3)
+  - Robust path resolution (5 priority levels)
+  - Auto-repair at startup
+  - Auto-update database when paths found
+  Database:
+  - Numpy type conversion fixes
+  - GNDVI column support
+  - Better error handling
+  Backend:
+  - Port changed to 5050 (avoids conflicts)
+  - CORS configuration updated
+  - Better error messages
+
+All fixes are automatic and persistent - no manual intervention needed after update!

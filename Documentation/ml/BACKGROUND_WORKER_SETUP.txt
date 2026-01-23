@@ -1,0 +1,207 @@
+Background Worker Setup Guide
+
+Overview
+
+The background worker service automatically monitors the database for new image uploads and processes them through the analysis pipeline.
+
+Status Flow
+
+uploaded → processing → completed
+              ↓
+           failed (if error)
+
+Status Definitions
+  - uploaded: Image has been uploaded and saved to database, waiting for processing
+  - processing: Analysis has started
+  - completed: Fully processed (analysis completed + results saved + processed image uploaded to S3)
+  - failed: Processing encountered an error
+
+Setup Instructions
+  Install Dependencies
+
+cd pythonprocessing
+pip install -r requirements.txt
+
+Make sure psycopg2-binary is in requirements.txt:
+psycopg2-binary==2.9.9
+  Configure Environment Variables
+
+Create/update .env file:
+
+Database Configuration
+DBHOST=localhost
+DBPORT=5432
+DBNAME=droneanalytics
+DBUSER=postgres
+DBPASSWORD=your-password
+
+Worker Configuration
+WORKERPOLLINTERVAL=10  # seconds between polls
+WORKERBATCHSIZE=5      # images to process per batch
+
+S3 Configuration
+AWSACCESSKEYID=your-key
+AWSSECRETACCESSKEY=your-secret
+AWSREGION=us-east-1
+S3BUCKETNAME=your-bucket
+
+Upload Folders
+UPLOADFOLDER=./uploads
+PROCESSEDFOLDER=./processed
+  Test Database Connection
+
+python3 -c "from dbutils import testconnection; print('Connected!' if testconnection() else 'Failed')"
+  Run Worker Manually (Testing)
+
+cd pythonprocessing
+python3 backgroundworker.py
+
+You should see:
+Background Image Processing Worker Starting
+Poll interval: 10 seconds
+Batch size: 5 images
+Worker is running. Press Ctrl+C to stop.
+  Set Up as Systemd Service (Production)
+
+On EC2/Linux:
+  Copy service file:
+      sudo cp backgroundworker.service /etc/systemd/system/drone-worker.service
+  Update paths in service file if needed:
+      sudo nano /etc/systemd/system/drone-worker.service
+  Reload systemd:
+      sudo systemctl daemon-reload
+  Enable service (start on boot):
+      sudo systemctl enable drone-worker
+  Start service:
+      sudo systemctl start drone-worker
+  Check status:
+      sudo systemctl status drone-worker
+  View logs:
+      sudo journalctl -u drone-worker -f
+  Service Management Commands
+
+Start
+sudo systemctl start drone-worker
+
+Stop
+sudo systemctl stop drone-worker
+
+Restart
+sudo systemctl restart drone-worker
+
+View status
+sudo systemctl status drone-worker
+
+View logs
+sudo journalctl -u drone-worker -f
+
+View last 100 lines
+sudo journalctl -u drone-worker -n 100
+
+How It Works
+  Image Upload: Flask API receives image, saves to database with status uploaded
+  Worker Polls: Background worker checks database every 10 seconds (configurable)
+  Status Update: Worker changes status to processing
+  Analysis: Worker runs OpenCV/TensorFlow analysis
+  Save Results: Analysis results saved to analyses table
+  Upload Processed: Processed image uploaded to S3
+  Status Complete: Status changed to completed
+
+Monitoring
+
+Check Processing Queue
+
+-- See pending images
+SELECT id, filename, processingstatus, uploadedat
+FROM images
+WHERE processingstatus IN ('uploaded', 'processing')
+ORDER BY uploadedat ASC;
+
+-- See completed images
+SELECT id, filename, processingstatus, processedat
+FROM images
+WHERE processingstatus = 'completed'
+ORDER BY processedat DESC
+LIMIT 10;
+
+-- See failed images
+SELECT id, filename, processingstatus, uploadedat
+FROM images
+WHERE processingstatus = 'failed'
+ORDER BY uploadedat DESC;
+
+Worker Logs
+
+Logs are written to:
+  - backgroundworker.log (in working directory)
+  - Systemd journal (if running as service)
+
+Troubleshooting
+
+Worker not processing images
+  Check database connection:
+      python3 -c "from dbutils import testconnection; testconnection()"
+  Check for pending images:
+      SELECT COUNT(*) FROM images WHERE processingstatus = 'uploaded';
+  Check worker logs:
+      tail -f backgroundworker.log
+   
+Images stuck in 'processing'
+
+If images are stuck, manually reset:
+UPDATE images 
+SET processingstatus = 'uploaded' 
+WHERE processingstatus = 'processing' 
+AND processedat IS NULL;
+
+Database connection errors
+  - Verify database is running: sudo systemctl status postgresql
+  - Check connection string in .env
+  - Verify database credentials
+
+S3 upload failures
+  - Check AWS credentials in .env
+  - Verify S3 bucket exists and is accessible
+  - Check IAM permissions
+
+Performance Tuning
+
+Adjust Poll Interval
+
+In .env:
+WORKERPOLLINTERVAL=5  # More frequent (faster processing, more DB queries)
+WORKERPOLLINTERVAL=30 # Less frequent (slower processing, fewer DB queries)
+
+Adjust Batch Size
+
+WORKERBATCHSIZE=10  # Process more images at once
+WORKERBATCHSIZE=1   # Process one at a time (more controlled)
+
+Multiple Workers
+
+For high volume, run multiple workers:
+Worker 1
+python3 backgroundworker.py
+
+Worker 2 (different terminal)
+WORKERBATCHSIZE=5 python3 backgroundworker.py
+
+Note: Database handles concurrent updates safely.
+
+Integration with Flask API
+
+The Flask API should use flaskapidb.py which:
+  - Saves images with status uploaded
+  - Does NOT process immediately
+  - Returns immediately to client
+  - Background worker picks up and processes
+
+Status Tracking in Frontend
+
+Frontend can poll for status:
+// Check image processing status
+const checkStatus = async (imageId) => {
+  const response = await fetch(/api/images/${imageId});
+  const data = await response.json();
+  return data.processingstatus; // uploaded, processing, completed, failed
+};

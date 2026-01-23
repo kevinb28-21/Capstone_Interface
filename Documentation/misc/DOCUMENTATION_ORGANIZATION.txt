@@ -1,0 +1,151 @@
+Documentation Organization
+
+This document describes how the project documentation is organized and where to find specific information.
+
+Documentation Structure
+
+All developer documentation has been consolidated into the documentation/ folder following best practices:
+
+documentation/
+├── README.md                          # Main documentation index
+├── DOCUMENTATIONORGANIZATION.md      # This file
+│
+├── getting-started/                   # Quick start guides
+│   ├── README.md                      # Quick start guide
+│   └── PROJECTOVERVIEW.md            # System overview
+│
+├── development/                       # Development guides
+│   └── README.md                      # Development setup and workflow
+│
+├── api/                               # API documentation
+│   ├── README.md                      # API overview
+│   ├── NODEAPI.md                    # Node.js API reference
+│   └── FLASKAPI.md                   # Flask API reference
+│
+├── database/                          # Database documentation
+│   ├── SCHEMA.md                      # Database schema
+│   └── MIGRATIONS.md                  # Migration guides
+│
+├── python-processing/                 # Python service docs
+│   ├── README.md                      # Python processing overview
+│   ├── BACKGROUNDWORKER.md           # Background worker details
+│   ├── BACKGROUNDWORKERSETUP.md     # Worker setup guide
+│   ├── MLTRAINING.md                 # ML model training guide
+│   ├── IMAGECAPTURE.md                # Image capture implementation
+│   └── ONIONCROP.md                  # Onion crop-specific features
+│
+├── deployment/                         # Deployment guides
+│   ├── README.md                      # Deployment overview
+│   ├── NETLIFY.md                     # Netlify deployment
+│   ├── NETLIFYQUICKSTART.md         # Quick Netlify setup
+│   ├── EC2.md                         # EC2 backend setup
+│   ├── S3.md                          # S3 configuration
+│   └── QUICKDEPLOY.md                # Quick deployment guide
+│
+└── architecture/                      # Architecture documentation
+    ├── README.md                      # System architecture
+    ├── S3INTEGRATION.md             # S3 integration details
+    └── S3IMPLEMENTATION.md           # S3 implementation summary
+
+File Organization Rules
+
+Moved Files
+
+All documentation files have been moved from root and subdirectories into documentation/:
+
+From Root:
+  - DEPLOYMENTGUIDE.md → documentation/deployment/README.md
+  - NETLIFYDEPLOYMENT.md → documentation/deployment/NETLIFY.md
+  - NETLIFYQUICKSTART.md → documentation/deployment/NETLIFYQUICKSTART.md
+  - EC2BACKENDSETUP.md → documentation/deployment/EC2.md
+  - QUICKDEPLOY.md → documentation/deployment/QUICKDEPLOY.md
+  - S3SETUP.md → documentation/deployment/S3.md
+  - S3INTEGRATIONGUIDE.md → documentation/architecture/S3INTEGRATION.md
+  - S3IMPLEMENTATIONSUMMARY.md → documentation/architecture/S3IMPLEMENTATION.md
+  - BACKGROUNDWORKERIMPLEMENTATION.md → documentation/python-processing/BACKGROUNDWORKER.md
+
+From pythonprocessing/:
+  - BACKGROUNDWORKERSETUP.md → documentation/python-processing/BACKGROUNDWORKERSETUP.md
+  - ONIONCROPUPDATES.md → documentation/python-processing/ONIONCROP.md
+  - documentation/imagecaptureguide.md → documentation/python-processing/IMAGECAPTURE.md
+
+From server/database/:
+  - SCHEMAOVERVIEW.md → documentation/database/SCHEMA.md
+
+Kept in Place
+
+These files remain in their original locations:
+  - README.md (root) - Main project README
+  - pythonprocessing/README.md - Python service quick reference
+  - server/database/schema.sql - Database schema SQL file
+  - pythonprocessing/databasemigrationaddgndvi.sql - Migration SQL
+
+Documentation Standards
+
+File Naming
+  - Use README.md for main index files in each directory
+  - Use UPPERCASEWITHUNDERSCORES.md for specific topic files
+  - Use descriptive names that indicate content
+
+Structure
+  - Each directory has a README.md that serves as an index
+  - Related documents are grouped in subdirectories
+  - Cross-references use relative paths
+
+Content Standards
+  - Clear headings and sections
+  - Code examples with syntax highlighting
+  - Step-by-step instructions for procedures
+  - Cross-references to related documents
+  - Table of contents for long documents
+
+Finding Documentation
+
+Quick Start
+  - New to the project? → documentation/getting-started/README.md
+  - Want system overview? → documentation/getting-started/PROJECT_OVERVIEW.md
+
+Development
+  - Setting up dev environment? → documentation/development/README.md
+  - Working on Python processing? → documentation/python-processing/README.md
+  - Need API details? → documentation/api/README.md
+
+Deployment
+  - Deploying to production? → documentation/deployment/README.md
+  - Netlify deployment? → documentation/deployment/NETLIFY.md
+  - EC2 setup? → documentation/deployment/EC2.md
+
+Reference
+  - Database schema? → documentation/database/SCHEMA.md
+  - API endpoints? → documentation/api/
+  - Architecture? → documentation/architecture/README.md
+
+Updating Documentation
+
+When adding new documentation:
+  Place in appropriate directory
+  - Setup guides → getting-started/ or development/
+  - API docs → api/
+  - Deployment → deployment/
+  - Architecture → architecture/
+  Update index files
+  - Add link to new doc in relevant README.md
+  - Update main documentation/README.md if needed
+  Follow naming conventions
+  - Use descriptive names
+  - Follow existing patterns
+  Add cross-references
+  - Link to related documents
+  - Update related docs to link back
+
+Benefits of This Organization
+
+✅ Centralized - All docs in one place  
+✅ Organized - Logical grouping by topic  
+✅ Discoverable - Easy to find what you need  
+✅ Maintainable - Clear structure for updates  
+✅ Professional - Follows industry best practices  
+
+Related
+  - Main Documentation Index
+  - Project README

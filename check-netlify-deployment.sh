@@ -101,5 +101,5 @@ echo "5. Check if site is paused (resume if needed)"
 echo "6. Try 'Trigger deploy' manually"
 echo ""
 echo "For detailed troubleshooting, see:"
-echo "docs/deployment/NETLIFY_TROUBLESHOOTING.md"
+echo "documentation/deployment/NETLIFY_TROUBLESHOOTING.md"
 

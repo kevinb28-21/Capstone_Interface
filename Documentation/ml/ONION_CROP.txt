@@ -1,0 +1,137 @@
+Onion Crop Health Analysis Updates
+
+This document summarizes all updates made to support onion (Allium cepa) crop health monitoring with NDVI, SAVI, and GNDVI vegetation indices.
+
+Overview
+
+The system has been updated to focus specifically on onion crop health assessment with:
+  - NDVI (Normalized Difference Vegetation Index)
+  - SAVI (Soil-Adjusted Vegetation Index) 
+  - GNDVI (Green Normalized Difference Vegetation Index)
+
+Health Categories
+
+The system now uses onion-specific health categories:
+  Very Healthy - NDVI > 0.8, SAVI > 0.7, GNDVI > 0.75
+  - Dark green, vigorous foliage
+  - Optimal growing conditions
+  Healthy - NDVI 0.6-0.8, SAVI 0.5-0.7, GNDVI 0.6-0.75
+  - Green, healthy-looking foliage
+  - Good canopy coverage
+  Moderate - NDVI 0.4-0.6, SAVI 0.3-0.5, GNDVI 0.4-0.6
+  - Light green to yellow-green foliage
+  - Some visible stress
+  Poor - NDVI 0.2-0.4, SAVI 0.15-0.3, GNDVI 0.2-0.4
+  - Yellowing or pale green foliage
+  - Reduced canopy coverage
+  Very Poor - NDVI < 0.2, SAVI < 0.15, GNDVI < 0.2
+  - Brown, yellow, or severely stressed foliage
+  - Sparse canopy coverage
+  Diseased - Fungal/bacterial/viral diseases
+  Stressed - Water/nutrient/heat stress
+  Weeds - Significant weed infestation
+
+Updated Files
+
+Core Processing
+  imageprocessor.py
+  - Added calculategndvi() function
+  - Updated health classification to be onion-specific
+  - Updated analyzecrophealth() to include all three indices
+  - Updated classifycrophealthtensorflow() to load and use trained models
+  backgroundworker.py
+  - Updated to calculate and save GNDVI values
+  - Enhanced logging for onion crop analysis
+  dbutils.py
+  - Updated saveanalysis() to save GNDVI values (with fallback if columns don't exist)
+  flaskapidb.py
+  - Updated queries to include analysis type information
+
+New Scripts
+  batchtestndvi.py
+  - Batch processing script for testing NDVI/SAVI/GNDVI on sample images
+  - Generates comprehensive reports with statistics
+  - Usage: python batchtestndvi.py <imagefolder> [outputdir]
+  trainmodel.py
+  - ML model training script for onion crop health classification
+  - Supports 8 health categories
+  - Usage: python trainmodel.py <imagefolder> [outputdir] [epochs]
+  databasemigrationaddgndvi.sql
+  - Database migration to add GNDVI columns
+  - Run with: psql -U postgres -d droneanalytics -f databasemigrationaddgndvi.sql
+
+Database Migration
+
+To add GNDVI support to your database, run:
+
+psql -U postgres -d droneanalytics -f pythonprocessing/databasemigrationaddgndvi.sql
+
+This adds:
+  - gndvi, gndvimean, gndvistd, gndvimin, gndvimax columns to analyses table
+  - gndvivalue column to stresszones table
+  - Indexes for efficient querying
+
+Usage
+
+Testing Image Processing Algorithm
+
+cd pythonprocessing
+python batchtestndvi.py /path/to/onion/images
+
+This will:
+  - Process all images in the folder
+  - Calculate NDVI, SAVI, and GNDVI for each
+  - Generate individual JSON files
+  - Create a CSV summary
+  - Generate a text report with statistics
+
+Training ML Model
+
+Organize your images in subfolders:
+
+sampleimages/
+  veryhealthy/
+    img1.jpg
+    img2.jpg
+  healthy/
+    img1.jpg
+  moderate/
+    img1.jpg
+  poor/
+    img1.jpg
+  verypoor/
+    img1.jpg
+  diseased/
+    img1.jpg
+  stressed/
+    img1.jpg
+  weeds/
+    img1.jpg
+
+Then train:
+
+python trainmodel.py ./sampleimages ./models 50
+
+Using Trained Model
+
+The trained model will be saved to ./models/onioncrophealthmodel.h5. The system will automatically use it when:
+  - usetensorflow=True is set in analyzecrophealth()
+  - Model path is set via ONIONMODELPATH environment variable or passed directly
+
+Expected Vegetation Index Ranges
+
+For onion crops, typical ranges are:
+
+| Health Status | NDVI Range | SAVI Range | GNDVI Range |
+|--------------|------------|------------|-------------|
+| Very Healthy  | > 0.8      | > 0.7      | > 0.75      |
+| Healthy       | 0.6-0.8    | 0.5-0.7    | 0.6-0.75    |
+| Moderate      | 0.4-0.6    | 0.3-0.5    | 0.4-0.6     |
+| Poor          | 0.2-0.4    | 0.15-0.3   | 0.2-0.4     |
+| Very Poor     | < 0.2      | < 0.15     | < 0.2       |
+
+Notes
+  - GNDVI is particularly useful for early growth stages of onion crops
+  - The system automatically detects if GNDVI columns exist in the database
+  - All analysis results include crop_type: 'onion' for identification
+  - The background worker automatically processes uploaded images with all three indices

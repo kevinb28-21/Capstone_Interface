@@ -1,0 +1,128 @@
+Netlify Quick Start Guide
+
+Prerequisites
+  Backend deployed (Railway/Render) - Get your backend URL
+  GitHub repository with your code
+  Netlify account (free at netlify.com)
+
+Step-by-Step Deployment
+
+Step 1: Deploy Backend First (if not done)
+
+Railway (Recommended):
+  Go to railway.app
+  New Project → Deploy from GitHub
+  Select server directory
+  Add PostgreSQL database
+  Set environment variables
+  Deploy → Copy your backend URL
+
+You'll get: https://your-backend.railway.app
+
+Step 2: Deploy Frontend to Netlify
+
+Option A: Via Dashboard (Easiest)
+  Go to Netlify: app.netlify.com
+  Add New Site → Import from Git
+  Connect GitHub → Select your repository
+  Configure Build Settings:
+      Base directory: client
+   Build command: npm run build
+   Publish directory: client/dist
+  Environment Variables:
+  - Click "Show advanced" → "New variable"
+  - Key: VITEAPIURL
+  - Value: https://your-backend.railway.app (your actual backend URL)
+  Deploy site!
+
+Option B: Via CLI
+
+Install Netlify CLI
+npm install -g netlify-cli
+
+Login
+netlify login
+
+Navigate to client directory
+cd client
+
+Initialize
+netlify init
+Choose: Create & configure a new site
+Build command: npm run build
+Publish directory: dist
+
+Set environment variable
+netlify env:set VITEAPIURL https://your-backend.railway.app
+
+Deploy
+netlify deploy --prod
+
+Step 3: Update netlify.toml
+
+Edit client/netlify.toml and replace the backend URL:
+
+[[redirects]]
+  from = "/api/"
+  to = "https://YOUR-ACTUAL-BACKEND.railway.app/api/:splat"
+  status = 200
+  force = true
+
+Step 4: Update Backend CORS
+
+In your backend environment variables (Railway/Render), add:
+
+ORIGIN=https://your-app.netlify.app
+
+Or update server/src/server.js to allow Netlify:
+
+app.use(cors({ 
+  origin: [
+    process.env.ORIGIN,
+    /\.netlify\.app$/  // Allow all Netlify domains
+  ]
+}));
+
+Step 5: Redeploy
+  Commit and push your changes
+  Netlify will auto-deploy (or trigger manually)
+  Test your site: https://your-app.netlify.app
+
+Testing
+  ✅ Visit your Netlify URL
+  ✅ Check browser console (F12) for errors
+  ✅ Test image upload
+  ✅ Test map functionality
+  ✅ Verify API calls work
+
+Troubleshooting
+
+CORS Errors
+  - Check backend ORIGIN environment variable includes your Netlify URL
+  - Verify CORS allows .netlify.app
+
+API 404 Errors
+  - Check netlify.toml redirects have correct backend URL
+  - Verify backend is running and accessible
+  - Check VITEAPIURL environment variable in Netlify
+
+Build Fails
+  - Check build logs in Netlify dashboard
+  - Verify all dependencies are in package.json
+  - Check Node.js version (Netlify uses 18 by default)
+
+Your Site is Live! 🎉
+
+URL: https://your-app.netlify.app
+
+Netlify provides:
+  - ✅ Free SSL/HTTPS
+  - ✅ Automatic deployments from GitHub
+  - ✅ Preview deployments for PRs
+  - ✅ CDN for fast global access
+
+Next Steps
+  - Set up custom domain (optional)
+  - Configure monitoring
+  - Set up backups
+  - Review NETLIFY_DEPLOYMENT.md for advanced options

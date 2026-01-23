@@ -1,0 +1,532 @@
+Image Capture Implementation Guide
+
+Overview
+
+This document describes the implementation of image capture on the Raspberry Pi 4 for drone missions. The system supports two capture modes:
+  Interval-based capture: Images taken at fixed time intervals
+  GPS-triggered capture: Images taken when the drone reaches specific GPS coordinates
+
+Architecture
+
+Raspberry Pi 4
+├── Camera Module (Raspberry Pi Camera or Multispectral)
+├── GPS Module (via Pixhawk/MAVLink or standalone GPS)
+├── Flight Controller Connection (USB/Serial)
+└── Capture Script (Python)
+    ├── MAVLink Interface (DroneKit/pymavlink)
+    ├── Camera Control (picamera2 or OpenCV)
+    └── Image Storage (/home/pi/droneimages/)
+
+Prerequisites
+
+Hardware Setup
+  Camera
+  - Raspberry Pi Camera Module v2/v3, or
+  - USB camera (tested with Logitech C920), or
+  - Multispectral camera (e.g., Parrot Sequoia)
+  GPS/Telemetry
+  - Pixhawk flight controller connected via USB (/dev/ttyUSB0) or Serial (/dev/serial0)
+  - Or standalone GPS module
+  Storage
+  - Ensure sufficient SD card space (recommended: 32GB+)
+  - External USB drive for longer missions (optional)
+
+Software Dependencies
+
+Install required Python packages:
+
+sudo apt-get update
+sudo apt-get install -y python3-pip python3-picamera2 libatlas-base-dev
+
+For MAVLink communication
+pip3 install dronekit pymavlink
+
+For image processing (optional, for onboard preprocessing)
+pip3 install opencv-python numpy pillow
+
+For GPS coordinates (if using standalone GPS)
+pip3 install gpsd-py3 pynmea2
+
+Serial Port Permissions
+
+Grant permissions for serial port access:
+
+sudo usermod -a -G dialout pi
+sudo chmod 666 /dev/ttyUSB0  # Or /dev/serial0
+
+Note: You may need to logout/login for group changes to take effect.
+
+Implementation Options
+
+Option 1: Interval-Based Capture
+
+Captures images at fixed time intervals regardless of location.
+
+Implementation
+
+#!/usr/bin/env python3
+"""
+Interval-based image capture script
+Usage: python3 captureinterval.py --interval 5 --duration 3600
+"""
+
+import time
+import argparse
+from datetime import datetime
+from pathlib import Path
+from picamera2 import Picamera2
+
+def captureinterval(camera, intervalseconds, durationseconds, outputdir):
+    """
+    Capture images at fixed intervals
+    
+    Args:
+        camera: Picamera2 instance
+        intervalseconds: Time between captures (seconds)
+        durationseconds: Total mission duration (seconds)
+        outputdir: Directory to save images
+    """
+    outputdir = Path(outputdir)
+    outputdir.mkdir(parents=True, existok=True)
+    
+    starttime = time.time()
+    capturecount = 0
+    
+    print(f"Starting interval capture: {intervalseconds}s interval, {durationseconds}s duration")
+    print(f"Output directory: {outputdir}")
+    
+    try:
+        while time.time() - starttime < durationseconds:
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]  # Include milliseconds
+            filename = outputdir / f"IMG{timestamp}.jpg"
+            
+            # Capture image
+            camera.capturefile(str(filename))
+            capturecount += 1
+            
+            print(f"Captured: {filename.name} (#{capturecount})")
+            
+            # Wait for next interval
+            time.sleep(intervalseconds)
+            
+    except KeyboardInterrupt:
+        print("\nCapture stopped by user")
+    finally:
+        print(f"\nTotal images captured: {capturecount}")
+        print(f"Average interval: {(time.time() - starttime) / capturecount:.2f}s")
+
+if name == "main":
+    parser = argparse.ArgumentParser(description="Interval-based image capture")
+    parser.addargument("--interval", type=float, default=5.0, 
+                       help="Capture interval in seconds (default: 5.0)")
+    parser.addargument("--duration", type=float, default=3600.0,
+                       help="Mission duration in seconds (default: 3600 = 1 hour)")
+    parser.addargument("--output", type=str, default="/home/pi/droneimages",
+                       help="Output directory (default: /home/pi/droneimages)")
+    
+    args = parser.parseargs()
+    
+    # Initialize camera
+    camera = Picamera2()
+    camera.configure(camera.createstillconfiguration())
+    camera.start()
+    time.sleep(2)  # Allow camera to warm up
+    
+    try:
+        captureinterval(camera, args.interval, args.duration, args.output)
+    finally:
+        camera.stop()
+
+Usage
+
+Capture every 5 seconds for 1 hour
+python3 captureinterval.py --interval 5 --duration 3600
+
+Capture every 2 seconds for 30 minutes
+python3 captureinterval.py --interval 2 --duration 1800 --output /mnt/usb/droneimages
+
+Advantages
+  - Simple implementation
+  - Predictable storage requirements
+  - No GPS dependency
+
+Disadvantages
+  - May capture redundant images in same area
+  - May miss important waypoints
+  - Less efficient storage usage
+
+Option 2: GPS-Triggered Capture
+
+Captures images only when the drone reaches specified GPS waypoints or enters geofenced areas.
+
+Implementation
+
+#!/usr/bin/env python3
+"""
+GPS-triggered image capture script
+Connects to Pixhawk via MAVLink and captures images at specified GPS coordinates
+Usage: python3 capturegpstriggered.py --waypoints waypoints.json --tolerance 10
+"""
+
+import time
+import json
+import argparse
+from datetime import datetime
+from pathlib import Path
+from picamera2 import Picamera2
+from dronekit import connect, VehicleMode
+import math
+
+class GPSCaptureController:
+    def init(self, vehicle, camera, waypoints, tolerancemeters=10.0):
+        """
+        GPS-triggered capture controller
+        
+        Args:
+            vehicle: DroneKit vehicle instance
+            camera: Picamera2 instance
+            waypoints: List of {lat, lng, name} waypoints
+            tolerancemeters: Distance threshold to trigger capture (meters)
+        """
+        self.vehicle = vehicle
+        self.camera = camera
+        self.waypoints = waypoints
+        self.tolerancemeters = tolerancemeters
+        self.capturedwaypoints = set()
+        self.outputdir = Path("/home/pi/droneimages")
+        self.outputdir.mkdir(parents=True, existok=True)
+    
+    def haversinedistance(self, lat1, lon1, lat2, lon2):
+        """
+        Calculate distance between two GPS coordinates using Haversine formula
+        Returns distance in meters
+        """
+        R = 6371000  # Earth radius in meters
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        
+        a = (math.sin(dphi/2)*2 + 
+             math.cos(phi1)  math.cos(phi2)  math.sin(dlambda/2)2)
+        c = 2  math.atan2(math.sqrt(a), math.sqrt(1-a))
+        
+        return R  c
+    
+    def checkproximity(self, currentlat, currentlng):
+        """Check if current position is near any waypoint"""
+        for waypoint in self.waypoints:
+            waypointid = f"{waypoint['lat']}{waypoint['lng']}"
+            
+            # Skip if already captured
+            if waypointid in self.capturedwaypoints:
+                continue
+            
+            distance = self.haversinedistance(
+                currentlat, currentlng,
+                waypoint['lat'], waypoint['lng']
+            )
+            
+            if distance <= self.tolerancemeters:
+                return waypoint, distance
+        
+        return None, None
+    
+    def captureatwaypoint(self, waypoint, gpsdata):
+        """Capture image at waypoint with GPS metadata"""
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+        waypointname = waypoint.get('name', 'WP')
+        filename = self.outputdir / f"{waypointname}{timestamp}.jpg"
+        
+        # Capture image
+        self.camera.capturefile(str(filename))
+        
+        # Save GPS metadata
+        metadata = {
+            'filename': filename.name,
+            'timestamp': datetime.now().isoformat(),
+            'waypoint': waypoint,
+            'gps': {
+                'lat': gpsdata['lat'],
+                'lng': gpsdata['lng'],
+                'altitude': gpsdata.get('altitude', 0),
+                'heading': gpsdata.get('heading', 0),
+                'groundspeed': gpsdata.get('groundspeed', 0)
+            }
+        }
+        
+        # Save metadata JSON
+        metadatafile = filename.withsuffix('.json')
+        with open(metadatafile, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        waypointid = f"{waypoint['lat']}{waypoint['lng']}"
+        self.capturedwaypoints.add(waypointid)
+        
+        print(f"✓ Captured at waypoint '{waypointname}': {filename.name}")
+        return filename, metadata
+    
+    def run(self):
+        """Main capture loop"""
+        print(f"GPS-triggered capture active")
+        print(f"Waypoints: {len(self.waypoints)}")
+        print(f"Tolerance: {self.tolerancemeters}m")
+        print(f"Waiting for GPS lock...")
+        
+        # Wait for GPS
+        while not self.vehicle.gps0.fixtype >= 2:
+            print("Waiting for GPS...")
+            time.sleep(1)
+        
+        print("GPS lock acquired!")
+        
+        lastchecktime = 0
+        checkinterval = 1.0  # Check GPS every second
+        
+        try:
+            while True:
+                currenttime = time.time()
+                
+                # Throttle GPS checks
+                if currenttime - lastchecktime < checkinterval:
+                    time.sleep(0.1)
+                    continue
+                
+                lastchecktime = currenttime
+                
+                # Get current position
+                if not self.vehicle.location.globalframe:
+                    continue
+                
+                currentlat = self.vehicle.location.globalframe.lat
+                currentlng = self.vehicle.location.globalframe.lng
+                currentalt = self.vehicle.location.globalframe.alt
+                
+                # Check proximity to waypoints
+                waypoint, distance = self.checkproximity(currentlat, currentlng)
+                
+                if waypoint:
+                    gpsdata = {
+                        'lat': currentlat,
+                        'lng': currentlng,
+                        'altitude': currentalt,
+                        'heading': self.vehicle.heading,
+                        'groundspeed': self.vehicle.groundspeed
+                    }
+                    
+                    self.captureatwaypoint(waypoint, gpsdata)
+                
+                # Print status
+                if len(self.capturedwaypoints) < len(self.waypoints):
+                    remaining = len(self.waypoints) - len(self.capturedwaypoints)
+                    print(f"Position: {currentlat:.6f}, {currentlng:.6f} | "
+                          f"Remaining waypoints: {remaining}")
+                
+                # Exit if all waypoints captured
+                if len(self.capturedwaypoints) >= len(self.waypoints):
+                    print("\n✓ All waypoints captured!")
+                    break
+                    
+        except KeyboardInterrupt:
+            print("\nCapture stopped by user")
+        finally:
+            print(f"\nTotal waypoints captured: {len(self.capturedwaypoints)}/{len(self.waypoints)}")
+
+def loadwaypoints(filepath):
+    """Load waypoints from JSON file"""
+    with open(filepath, 'r') as f:
+        return json.load(f)
+
+if name == "main":
+    parser = argparse.ArgumentParser(description="GPS-triggered image capture")
+    parser.addargument("--connection", type=str, default="/dev/ttyUSB0",
+                       help="Pixhawk connection (default: /dev/ttyUSB0)")
+    parser.addargument("--baud", type=int, default=57600,
+                       help="Serial baud rate (default: 57600)")
+    parser.addargument("--waypoints", type=str, required=True,
+                       help="JSON file with waypoints")
+    parser.addargument("--tolerance", type=float, default=10.0,
+                       help="Waypoint capture tolerance in meters (default: 10.0)")
+    
+    args = parser.parseargs()
+    
+    # Load waypoints
+    waypoints = loadwaypoints(args.waypoints)
+    print(f"Loaded {len(waypoints)} waypoints from {args.waypoints}")
+    
+    # Connect to vehicle
+    print(f"Connecting to vehicle at {args.connection}...")
+    vehicle = connect(args.connection, baud=args.baud, waitready=True)
+    print(f"Connected to vehicle: {vehicle.version}")
+    
+    # Initialize camera
+    camera = Picamera2()
+    camera.configure(camera.createstillconfiguration())
+    camera.start()
+    time.sleep(2)
+    
+    try:
+        controller = GPSCaptureController(vehicle, camera, waypoints, args.tolerance)
+        controller.run()
+    finally:
+        camera.stop()
+        vehicle.close()
+
+Waypoint File Format
+
+Create a JSON file with waypoints (e.g., waypoints.json):
+
+[
+  {
+    "name": "FieldSectionA",
+    "lat": 37.7749,
+    "lng": -122.4194
+  },
+  {
+    "name": "FieldSectionB",
+    "lat": 37.7755,
+    "lng": -122.4200
+  },
+  {
+    "name": "FieldSectionC",
+    "lat": 37.7730,
+    "lng": -122.4210
+  }
+]
+
+Usage
+
+Capture at GPS waypoints
+python3 capturegpstriggered.py --waypoints waypoints.json --tolerance 10
+
+Use different serial port
+python3 capturegpstriggered.py --connection /dev/serial0 --waypoints waypoints.json
+
+Advantages
+  - Captures images only at important locations
+  - More efficient storage usage
+  - Better coverage of field areas
+  - Synchronized with mission waypoints
+
+Disadvantages
+  - Requires GPS lock
+  - More complex implementation
+  - Depends on flight controller connection
+
+Option 3: Hybrid Mode (Recommended)
+
+Combines interval-based and GPS-triggered capture for reliability.
+
+#!/usr/bin/env python3
+"""
+Hybrid capture: Interval + GPS-triggered
+Ensures images every N seconds, but prioritizes waypoint captures
+"""
+
+Implementation combines both methods
+  - Always captures at waypoints (GPS-triggered)
+  - Fills gaps with interval captures
+  - Prevents duplicate captures near waypoints
+
+Configuration
+
+Camera Settings
+
+Adjust camera configuration in the capture script:
+
+High resolution for crop analysis
+camera = Picamera2()
+config = camera.createstillconfiguration(
+    main={"size": (4056, 3040)},  # Full resolution for Pi Camera v2
+    buffercount=3
+)
+camera.configure(config)
+camera.setcontrols({"ExposureTime": 10000, "AnalogueGain": 1.0})
+
+Storage Management
+
+Monitor disk space and clean up old images:
+
+Check available space
+df -h /home/pi
+
+Cleanup script (run before missions)
+#!/bin/bash
+Remove images older than 7 days
+find /home/pi/droneimages -name ".jpg" -mtime +7 -delete
+
+Integration with Upload Script
+
+After capture, images are automatically uploaded to the Flask server:
+
+uploadimages.py (runs after mission)
+import requests
+from pathlib import Path
+
+UPLOADURL = "http://your-server-ip:5001/api/upload"
+IMAGEDIR = Path("/home/pi/droneimages")
+
+for imgfile in IMAGEDIR.glob("*.jpg"):
+    metadatafile = imgfile.withsuffix('.json')
+    
+    with open(imgfile, 'rb') as f, open(metadatafile, 'r') as m:
+        files = {'image': f}
+        data = {'gps': m.read()} if metadatafile.exists() else {}
+        response = requests.post(UPLOADURL, files=files, data=data)
+        print(f"Uploaded: {imgfile.name}")
+
+Troubleshooting
+
+GPS Not Locking
+  - Ensure Pixhawk has clear sky view
+  - Check serial connection: dmesg | grep tty
+  - Verify baud rate matches flight controller settings
+
+Camera Not Detected
+  - Check camera connection: vcgencmd getcamera
+  - Enable camera: sudo raspi-config → Interface Options → Camera → Enable
+  - Test with: libcamera-hello --list-cameras
+
+Serial Port Issues
+  - Check permissions: ls -l /dev/ttyUSB0
+  - Add user to dialout group: sudo usermod -a -G dialout pi
+  - Test connection: mavproxy.py --master=/dev/ttyUSB0 --baudrate=57600
+
+Performance Considerations
+  - Interval capture: 1-2 images/second max (depends on storage write speed)
+  - GPS-triggered: Minimal overhead, captures only when needed
+  - Storage: JPEG compression recommended (balance quality vs size)
+  - Processing: Onboard preprocessing (resize/NDVI) adds latency
+
+Testing Without Drone
+
+Test GPS-triggered capture using simulated coordinates:
+
+Simulate GPS movement
+simulatedwaypoints = [
+    {'lat': 37.7749, 'lng': -122.4194, 'name': 'TestWP1'},
+    {'lat': 37.7750, 'lng': -122.4195, 'name': 'TestWP2'}
+]
+
+Mock vehicle with simulated GPS
+class MockVehicle:
+    def init(self):
+        self.location = type('obj', (object,), {
+            'globalframe': type('obj', (object,), {
+                'lat': 37.7749, 'lng': -122.4194, 'alt': 50
+            })()
+        })()
+        self.heading = 90
+        self.groundspeed = 5.0
+
+Next Steps
+  Geofence Integration: Add software geofencing (see geofenceintegration.md)
+  Real-time Upload: Stream images during flight (requires strong WiFi)
+  Onboard Processing: Pre-compute NDVI before upload
+  Mission Planning: Generate waypoints from web app geofence
+
+References
+  - DroneKit Documentation
+  - Picamera2 Documentation
+  - MAVLink Protocol
+  - GPS Coordinate Calculations

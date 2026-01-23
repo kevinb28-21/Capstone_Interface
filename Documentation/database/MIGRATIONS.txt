@@ -1,0 +1,64 @@
+Database Migrations
+
+Guide for running database migrations and schema updates.
+
+Available Migrations
+
+Add GNDVI Support
+
+File: pythonprocessing/databasemigrationaddgndvi.sql
+
+Adds GNDVI (Green Normalized Difference Vegetation Index) columns to support onion crop health analysis.
+
+Run:
+psql -U postgres -d droneanalytics -f pythonprocessing/databasemigrationaddgndvi.sql
+
+Changes:
+  - Adds gndvi, gndvimean, gndvistd, gndvimin, gndvimax to analyses table
+  - Adds gndvivalue to stresszones table
+  - Creates index on gndvimean
+
+Running Migrations
+
+Initial Schema
+
+psql -U postgres -d droneanalytics -f server/database/schema.sql
+
+Apply Migrations
+
+GNDVI migration
+psql -U postgres -d droneanalytics -f pythonprocessing/databasemigrationaddgndvi.sql
+
+Migration Best Practices
+  Backup First
+      pgdump -U postgres droneanalytics > backup.sql
+  Test on Development
+  - Run migrations on development database first
+  - Verify schema changes
+  - Test application functionality
+  Production Deployment
+  - Schedule maintenance window if needed
+  - Run migrations during low-traffic periods
+  - Monitor for errors
+  Rollback Plan
+  - Keep backup of previous schema
+  - Document rollback procedures
+  - Test rollback on development
+
+Verifying Migrations
+
+Check Column Exists
+
+SELECT columnname 
+FROM informationschema.columns 
+WHERE tablename='analyses' AND columnname='gndvimean';
+
+Check Index Exists
+
+SELECT indexname 
+FROM pgindexes 
+WHERE tablename='analyses' AND indexname='idxanalysesgndvi_mean';
+
+Related Documentation
+  - Database Schema
+  - Python Processing

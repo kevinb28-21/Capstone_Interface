@@ -1,0 +1,75 @@
+Database Migration Instructions
+
+GNDVI Column Migration
+
+The database needs GNDVI (Green Normalized Difference Vegetation Index) columns added to the analyses table.
+
+Option 1: Run Migration Remotely (Recommended)
+
+From your local machine:
+
+cd /Users/kevinbhatt/Desktop/Projects/CapstoneInterface
+./deploy/run-migration-remote.sh ~/Downloads/MS04ID.pem ubuntu@ec2-18-223-169-5.us-east-2.compute.amazonaws.com
+
+Option 2: Run Migration Directly on EC2
+  SSH into EC2:
+ssh -i ~/Downloads/MS04ID.pem ubuntu@ec2-18-223-169-5.us-east-2.compute.amazonaws.com
+  Navigate to project directory:
+cd ~/CapstoneInterface
+  Run the migration script:
+./deploy/run-migration.sh
+
+Option 3: Manual Migration
+
+If the scripts don't work, run the SQL directly:
+
+SSH into EC2 first, then:
+cd ~/CapstoneInterface
+
+Load environment variables
+source pythonprocessing/.env  # or export them manually
+
+Run migration
+psql -U "$DBUSER" -d "$DBNAME" -h "${DBHOST:-localhost}" \
+  -f pythonprocessing/databasemigrationaddgndvi.sql
+
+Verify Migration
+
+After running the migration, verify it worked:
+
+SELECT columnname 
+FROM informationschema.columns 
+WHERE tablename='analyses' AND columnname LIKE 'gndvi%'
+ORDER BY columnname;
+
+You should see:
+  - gndvi
+  - gndvimean
+  - gndvistd
+  - gndvimin
+  - gndvimax
+
+Restart Services
+
+After migration, restart the backend services:
+
+pm2 restart server
+pm2 restart flask-api
+pm2 restart background-worker
+
+Troubleshooting
+
+Error: "column does not exist"
+  - Make sure the migration SQL file exists: pythonprocessing/databasemigrationaddgndvi.sql
+  - Check database connection settings in pythonprocessing/.env
+  - Verify you have the correct database user permissions
+
+Error: "permission denied"
+  - Make sure the database user has ALTER TABLE permissions
+  - You may need to run as postgres superuser:
+sudo -u postgres psql -d droneanalytics -f pythonprocessing/databasemigrationaddgndvi.sql
+
+Connection Timeout
+  - Check EC2 instance is running
+  - Verify security group allows SSH (port 22)
+  - Check if the public IP has changed

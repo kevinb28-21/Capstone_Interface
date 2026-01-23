@@ -1,0 +1,193 @@
+ML Pipeline Documentation
+
+Overview
+
+This document describes the band-aware, multispectral ML pipeline for multi-crop plant health classification. The system supports RGB and multispectral (RGB+NIR) inputs with no NIR approximation - images are processed through separate RGB and multispectral paths based on available bands.
+
+Key Features
+  Band-Aware Processing
+  - No NIR Approximation: The system does NOT approximate NIR from RGB channels
+  - Separate Paths: RGB images use RGB path, multispectral images use multispectral path
+  - Band Mask: Network receives a band mask indicating which bands are present
+  - Graceful Degradation: If multispectral model is requested but NIR is missing, falls back to RGB path with warning
+  Multispectral Loading
+  - GeoTIFF Support: Uses rasterio (preferred) or tifffile for multi-band TIFF files
+  - Deterministic Band Order: Enforced via datasetregistry.yaml
+  - Band Schema Storage: Per-image band schema stored in processing metadata and database
+  Index/ML Fusion
+  - True Band Indices: NDVI/SAVI/GNDVI computed from actual NIR band (when available)
+  - Feature Fusion: Index statistics (mean/std/min/max for each index) concatenated into dense fusion layer
+  - Fusion Health Score: Combined ML prediction + index-based score persisted to database
+  Database Schema
+
+New fields in analyses table:
+  - modelversion: ML model version identifier
+  - inferencetimems: Model inference time
+  - bandschema: JSONB with band information
+  - healthtopk: JSONB array of top-k health predictions
+  - croptopk: JSONB array of top-k crop predictions
+  - fusionhealthscore: Combined health score from ML + indices
+
+Architecture
+
+Model Architecture
+
+The band-aware model has:
+  RGB Input Path: 3-channel input (R, G, B)
+  Multispectral Input Path: 4-channel input (R, G, B, NIR)
+  Band Mask Input: Indicates which bands are present
+  Index Features Input: Concatenated index statistics
+  Fusion Layer: Combines image features with index features
+  Dual Output: Health classification + crop type classification
+
+Processing Flow
+
+Image Input
+    ↓
+Detect Band Schema (from datasetregistry.yaml or auto-detect)
+    ↓
+┌─────────────────┬──────────────────┐
+│  RGB Path       │  Multispectral   │
+│  (3 channels)   │  Path (4 ch)     │
+└─────────────────┴──────────────────┘
+    ↓                    ↓
+Compute Indices (if NIR available)
+    ↓
+Create Band Mask
+    ↓
+Model Inference (band-aware)
+    ↓
+Fusion (ML + Index features)
+    ↓
+Predictions (health + crop)
+    ↓
+Store Results (with bandschema, topk, fusionscore)
+
+Dataset Registry
+
+The datasetregistry.yaml file enforces deterministic band order:
+
+datasets:
+  plantvillage:
+    bandorder: ["R", "G", "B"]
+    bandcount: 3
+    domain: "leaf"
+    domainmismatchwarning: true
+  
+  weedsgalore:
+    bandorder: ["R", "G", "B", "RE", "NIR"]
+    bandcount: 5
+    domain: "uav"
+    domainmismatchwarning: false
+
+Index Calculation
+
+NDVI (Normalized Difference Vegetation Index)
+  - Formula: (NIR - Red) / (NIR + Red)
+  - Requires: NIR band
+  - Returns: None if NIR not available (no approximation)
+
+SAVI (Soil-Adjusted Vegetation Index)
+  - Formula: ((NIR - Red) / (NIR + Red + L)) * (1 + L)
+  - Requires: NIR band
+  - Returns: None if NIR not available
+
+GNDVI (Green NDVI)
+  - Formula: (NIR - Green) / (NIR + Green)
+  - Requires: NIR band
+  - Returns: None if NIR not available
+
+Background Worker
+
+Model Loading
+  - Load Once: Model loaded at worker startup, cached globally
+  - Path Logging: Logs which processing path was used (RGB vs multispectral)
+  - Band Logging: Logs which bands were detected and used
+  - Missing Band Handling: If multispectral model requested but NIR missing, uses RGB path with warning
+
+Logging Example
+
+Multi-crop TensorFlow classification (path: multispectral, bands: ['R', 'G', 'B', 'NIR']): 
+crop=onion (confidence: 95.2%), 
+health=healthy (confidence: 87.3%)
+
+Database Migration
+
+Apply the new migration to add ML fields:
+
+psql -U postgres -d droneanalytics -f server/database/migrationaddmlfields.sql
+
+This adds:
+  - modelversion
+  - inferencetimems
+  - bandschema (JSONB)
+  - healthtopk (JSONB)
+  - croptopk (JSONB)
+  - fusionhealthscore
+
+Evaluation Improvements
+
+Per-Crop Confusion Matrices
+
+The evaluation system generates:
+  - Confusion matrix for each crop type (cherrytomato, onion, corn)
+  - Macro F1 score across all crops
+  - Per-class precision, recall, F1
+
+Domain Shift Evaluation
+  - Separate Splits: UAV datasets evaluated separately from leaf datasets
+  - Domain Mismatch Warning: PlantVillage (leaf images) flagged for potential domain shift
+  - Quantified Shift: Metrics show performance difference between domains
+
+Dataset Metadata Corrections
+  WeedsGalore License: Updated to CC BY (dataset), Apache-2.0 (code)
+  TOM2024 DOI: Corrected to 10.17632/3d4yg89rtr.1
+  TOM2024 URL: Updated to match DOI
+  PlantVillage Warning: Added domain mismatch warning (leaf vs UAV)
+
+Usage
+
+Training
+
+python pythonprocessing/trainmulticropmodelv2.py \
+    --data-folder ./data/training \
+    --output-dir ./models/multicrop \
+    --config trainingconfig.yaml
+
+Inference
+
+The background worker automatically:
+  Loads model once at startup
+  Detects band schema for each image
+  Routes to appropriate path (RGB or multispectral)
+  Computes indices from true bands
+  Performs fusion
+  Stores results with full metadata
+
+Environment Variables
+
+USEMULTICROPMODEL=true
+MULTICROPMODELDIR=./models/multicrop
+
+Files Modified
+  - pythonprocessing/imageprocessor.py: Removed NIR approximation, added band-aware processing
+  - pythonprocessing/multispectralloader.py: New multispectral loading with rasterio/tifffile
+  - pythonprocessing/trainmulticropmodelv2.py: Band-aware model architecture
+  - pythonprocessing/backgroundworker.py: Model loading once, path/band logging
+  - pythonprocessing/dbutils.py: Save new ML fields
+  - pythonprocessing/datasets/datasetregistry.yaml: Band order enforcement
+  - server/database/migrationaddmlfields.sql: New database fields
+  - documentation/datasets.md: Corrected metadata, added warnings
+
+Dependencies
+
+New dependencies added to requirements.txt:
+  - rasterio>=1.3.0: GeoTIFF/multi-band TIFF loading
+  - tifffile>=2023.1.0: TIFF file support (fallback)
+  - pyyaml>=6.0: YAML configuration parsing
+
+Notes
+  - No NIR Approximation: This is a hard requirement - RGB images cannot compute true NDVI/SAVI/GNDVI
+  - Band Schema Persistence: Every processed image has its band schema stored for traceability
+  - Fusion Score: Combines ML confidence with index-based signals for more robust predictions
+  - Top-K Predictions: Stored for analysis and debugging

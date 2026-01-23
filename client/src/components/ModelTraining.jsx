@@ -86,14 +86,17 @@ export default function ModelTraining() {
           </div>
         </div>
         {modelAvailable ? (
-          <div style={{ fontSize: 13, color: '#065f46', marginTop: 8 }}>
-            {modelType === 'multi_crop' ? 'Multi-crop model' : 'Single-crop model'} loaded
-            {modelInfo?.model_version && ` (${modelInfo.model_version})`}
-            {modelInfo?.channels && ` - ${modelInfo.channels} channels`}
+          <div style={{ fontSize: 13, color: '#065f46', marginTop: 8, lineHeight: 1.6 }}>
+            {modelType === 'multi_crop' ? 'Multi-crop model' : 'Single-crop model'} ready for inference
+            {modelInfo?.model_version && ` (v${modelInfo.model_version})`}
+            {modelInfo?.channels && ` • ${modelInfo.channels}-channel input`}
+            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.9 }}>
+              The model analyzes crop health using vegetation indices (NDVI, SAVI, GNDVI)
+            </div>
           </div>
         ) : (
-          <div style={{ fontSize: 13, color: '#92400e', marginTop: 8 }}>
-            No trained model found. Train a model to enable ML-based classification.
+          <div style={{ fontSize: 13, color: '#92400e', marginTop: 8, lineHeight: 1.6 }}>
+            No trained model detected. The system uses vegetation index analysis for crop health assessment.
           </div>
         )}
       </div>

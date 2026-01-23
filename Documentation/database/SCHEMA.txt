@@ -1,0 +1,244 @@
+PostgreSQL Database Schema Overview
+
+Database Structure
+
+This schema stores all data for the Drone Crop Health Platform including image metadata, GPS coordinates, timestamps, processing status, telemetry, and geofences.
+
+Tables
+  missions
+Stores flight session/mission information.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - name - Mission name
+  - starttime, endtime - Mission timestamps
+  - status - active, completed, cancelled
+  images ⭐
+Stores image metadata and file information.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - missionid - Links to mission
+  - filename, originalname - File names
+  - filepath - Local path (if not S3)
+  - s3url, s3key - S3 storage info
+  - s3stored (BOOLEAN) - Whether stored in S3
+  - filesize, mimetype - File metadata
+  - capturedat - When drone captured image
+  - uploadedat - When uploaded to server
+  - processingstatus - pending, processing, completed, failed
+  - processedat - When processing completed
+
+Indexes:
+  - missionid, capturedat, uploadedat, processingstatus
+  imagegps 📍
+Stores GPS coordinates for each image.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - imageid (UNIQUE) - Links to image
+  - latitude, longitude - GPS coordinates
+  - altitude - Height in meters
+  - accuracy - GPS accuracy in meters
+  - heading - Bearing/heading (0-360°)
+  - groundspeed, speed - Speed in m/s
+  - capturedat - GPS timestamp
+
+Indexes:
+  - imageid, (latitude, longitude) for location queries
+  analyses 🔬
+Stores crop health analysis results.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - imageid (UNIQUE) - Links to image
+  - NDVI Values:
+  - ndvi, ndvimean - Mean NDVI (0-1)
+  - ndvistd, ndvimin, ndvimax - Statistics
+  - SAVI Values:
+  - savi, savimean - Mean SAVI (0-1)
+  - savistd, savimin, savimax - Statistics
+  - Health Metrics:
+  - healthscore (0-100) - Overall health
+  - healthstatus - healthy, attentionneeded, stressed, critical
+  - summary - Text summary
+  - analysistype - placeholder, opencv, tensorflow
+  - modelversion - ML model version
+  - confidence - Confidence score (0-1)
+  - processedimagepath, processeds3url - Processed image locations
+  - processedat - Processing timestamp
+
+Indexes:
+  - imageid, healthstatus, processedat
+  stresszones 🗺️
+Stores detailed stress zone grid data.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - analysisid - Links to analysis
+  - gridx, gridy - Grid coordinates (0-100)
+  - severity (0-1) - Stress severity
+  - ndvivalue, savivalue - Values at grid point
+
+Unique Constraint:
+  - (analysisid, gridx, gridy) - One point per grid location
+
+Indexes:
+  - analysisid, severity
+  telemetry 🚁
+Stores current drone position and state.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - latitude, longitude - Current position
+  - altitude - Height in meters
+  - heading - Direction (0-360°)
+  - groundspeed - Speed in m/s
+  - batterylevel (0-100) - Battery percentage
+  - status - idle, flying, landing, error
+  - timestamp - Current timestamp
+
+Indexes:
+  - timestamp, status
+  routepoints 🛤️
+Stores drone flight path history.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - latitude, longitude - Route point position
+  - altitude - Height at point
+  - sequence - Order in route (0, 1, 2, ...)
+  - timestamp - When point was recorded
+
+Indexes:
+  - sequence, timestamp
+  geofences 🗺️
+Stores geofence definitions.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - name - Geofence name
+  - description - Description
+  - isactive (BOOLEAN) - Whether active
+
+Indexes:
+  - isactive
+  geofencepoints 📍
+Stores points that form geofence boundaries.
+
+Key Fields:
+  - id (UUID) - Primary key
+  - geofenceid - Links to geofence
+  - latitude, longitude - Point coordinates
+  - sequence - Order to form polygon
+
+Unique Constraint:
+  - (geofenceid, sequence) - One point per sequence
+
+Indexes:
+  - geofenceid, (geofenceid, sequence)
+
+Relationships
+
+missions
+  └── images (missionid)
+        ├── imagegps (imageid) [1:1]
+        └── analyses (imageid) [1:1]
+              └── stresszones (analysisid) [1:many]
+
+geofences
+  └── geofencepoints (geofenceid) [1:many]
+
+telemetry [standalone - current state]
+routepoints [standalone - historical path]
+
+Key Features
+
+Timestamps
+  - capturedat: When drone captured image
+  - uploadedat: When uploaded to server
+  - processedat: When analysis completed
+  - createdat: Record creation time
+  - updatedat: Last update time (auto-updated via triggers)
+
+Processing Status
+Images have processingstatus field:
+  - pending - Uploaded, waiting for processing
+  - processing - Currently being analyzed
+  - completed - Analysis finished
+  - failed - Processing error
+
+S3 Integration
+  - s3stored (BOOLEAN) - Whether in S3
+  - s3url - Full S3 URL
+  - s3key - S3 object key
+  - filepath - Local path (fallback)
+
+GPS Data
+  - Stored in separate imagegps table
+  - Includes altitude, accuracy, heading, speed
+  - Indexed for location-based queries
+
+Health Metrics
+  - NDVI: Normalized Difference Vegetation Index
+  - SAVI: Soil-Adjusted Vegetation Index (better for sparse vegetation)
+  - healthscore: Overall score (0-100)
+  - healthstatus: Categorical status
+
+Usage Examples
+
+Insert Image with GPS
+-- Insert image
+INSERT INTO images (filename, originalname, s3url, s3stored, capturedat)
+VALUES ('img123.jpg', 'fieldphoto.jpg', 'https://bucket.s3...', TRUE, NOW())
+RETURNING id;
+
+-- Insert GPS data
+INSERT INTO imagegps (imageid, latitude, longitude, altitude, heading)
+VALUES ('image-uuid', 43.6532, -79.3832, 50.5, 90.0);
+
+Insert Analysis Results
+-- Insert analysis
+INSERT INTO analyses (imageid, ndvimean, savimean, healthscore, healthstatus, summary)
+VALUES ('image-uuid', 0.65, 0.58, 85.0, 'healthy', 'Crop health is excellent');
+
+-- Insert stress zones
+INSERT INTO stresszones (analysisid, gridx, gridy, severity, ndvivalue)
+VALUES 
+  ('analysis-uuid', 10, 20, 0.3, 0.55),
+  ('analysis-uuid', 11, 20, 0.2, 0.60);
+
+Query Images with Analysis
+SELECT 
+  i.id,
+  i.filename,
+  i.s3url,
+  i.capturedat,
+  g.latitude,
+  g.longitude,
+  a.ndvimean,
+  a.savimean,
+  a.healthstatus
+FROM images i
+LEFT JOIN imagegps g ON i.id = g.imageid
+LEFT JOIN analyses a ON i.id = a.imageid
+WHERE i.processingstatus = 'completed'
+ORDER BY i.capturedat DESC;
+
+Setup Instructions
+  Create database:
+      createdb droneanalytics
+  Run schema:
+      psql -U postgres -d droneanalytics -f server/database/schema.sql
+  Verify:
+      \dt  -- List tables
+   \d images  -- Describe images table
+   
+
+Notes
+  - Uses UUID for primary keys (better for distributed systems)
+  - Automatic timestamps via triggers
+  - Indexes on frequently queried fields
+  - Foreign keys with CASCADE deletes
+  - Unique constraints prevent duplicates
+  - Comments on tables for documentation

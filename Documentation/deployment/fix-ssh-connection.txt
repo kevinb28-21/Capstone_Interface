@@ -1,0 +1,97 @@
+Fixing SSH Connection Issues
+
+If SSH is timing out, here's how to troubleshoot and fix it.
+
+Common Causes
+  Public IP Changed - EC2 instances get new IPs when stopped/started (unless using Elastic IP)
+  Security Group - Port 22 not open from your IP
+  Network ACLs - Blocking SSH traffic
+  Instance Status - Instance might be stopping/stopped
+
+Step 1: Check Instance Status
+  AWS Console → EC2 → Instances
+  Find your instance (i-067f72e13b8724b18)
+  Check:
+  - State: Should be "running" (green circle)
+  - Public IPv4 address: Note the current IP
+  - Public IPv4 DNS: Note the current hostname
+
+Step 2: Verify Security Group
+  Click on your instance → Security tab
+  Click on the Security Group name
+  Check Inbound rules:
+  - Should have rule: Type: SSH, Port: 22, Source: Your IP or 0.0.0.0/0
+  If missing, click Edit inbound rules → Add rule:
+  - Type: SSH
+  - Port: 22
+  - Source: 0.0.0.0/0 (or your specific IP for security)
+  - Click Save rules
+
+Step 3: Get Current Connection Details
+
+The IP might have changed. Get the current details:
+
+Option A: Check AWS Console (see Step 1)
+
+Option B: Use AWS CLI (if installed)
+aws ec2 describe-instances \
+  --instance-ids i-067f72e13b8724b18 \
+  --query 'Reservations[0].Instances[0].[PublicIpAddress,PublicDnsName,State.Name]' \
+  --output table
+
+Step 4: Test SSH Connection
+
+Try connecting with the current IP:
+
+Replace <current-ip> with the IP from AWS Console
+ssh -i ~/Downloads/MS04ID.pem ubuntu@<current-ip>
+
+Or with the DNS name (if it's updated)
+ssh -i ~/Downloads/MS04ID.pem ubuntu@ec2-<current-ip>.us-east-2.compute.amazonaws.com
+
+Step 5: Assign Elastic IP (Recommended)
+
+To prevent IP changes, assign an Elastic IP:
+  EC2 Console → Elastic IPs → Allocate Elastic IP address
+  Click Allocate
+  Select the Elastic IP → Actions → Associate Elastic IP address
+  Select your instance → Associate
+
+Now your IP won't change!
+
+Step 6: Update Scripts with New IP
+
+Once you have a working connection, update the scripts:
+
+Edit deploy/migrate-and-update.sh
+Change EC2HOST to the current IP or Elastic IP
+
+Or use the Elastic IP DNS name
+
+Alternative: EC2 Instance Connect
+
+If SSH still doesn't work, try EC2 Instance Connect:
+  EC2 Console → Select instance → Connect
+  Choose EC2 Instance Connect tab
+  Click Connect
+
+This opens a browser-based terminal (no SSH key needed, but limited to 60 seconds).
+
+Quick Fix Commands (Once Connected)
+
+Once you can connect (via any method), run:
+
+cd ~/CapstoneInterface
+
+Run migration
+psql -U droneuser -d droneanalytics -f pythonprocessing/databasemigrationaddgndvi.sql
+
+Update code
+git pull origin main || echo "Git not configured, will sync files manually"
+
+Update dependencies
+cd server && npm install --production && cd ..
+cd python_processing && source venv/bin/activate && pip install -r requirements.txt && deactivate && cd ..
+
+Restart services
+pm2 restart all

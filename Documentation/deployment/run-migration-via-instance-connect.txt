@@ -1,0 +1,99 @@
+Run Migration via EC2 Instance Connect
+
+Since SSH is blocked, use EC2 Instance Connect (works immediately, no setup needed).
+
+Step 1: Connect via EC2 Instance Connect
+  Go to AWS Console → EC2 → Instances
+  Select instance: i-0ce6adb51ca9c5a4d (CropView)
+  Click Connect button
+  Choose EC2 Instance Connect tab
+  Click Connect (opens browser terminal)
+
+Note: Sessions are 60 seconds, but you can reconnect multiple times.
+
+Step 2: Run Migration Commands
+
+Once connected, copy and paste these commands one section at a time:
+
+Part 1: Navigate and Check
+cd ~/CapstoneInterface
+pwd
+ls -la pythonprocessing/databasemigrationaddgndvi.sql
+
+Part 2: Load Environment Variables
+source pythonprocessing/.env
+echo "DBNAME: $DBNAME"
+echo "DBUSER: $DBUSER"
+
+Part 3: Run Migration
+psql -U "$DBUSER" -d "$DBNAME" -h "${DBHOST:-localhost}" \
+  -f pythonprocessing/databasemigrationaddgndvi.sql
+
+Part 4: Verify Migration
+psql -U "$DBUSER" -d "$DBNAME" -h "${DBHOST:-localhost}" -c "
+SELECT columnname 
+FROM informationschema.columns 
+WHERE tablename='analyses' AND columnname LIKE 'gndvi%'
+ORDER BY columnname;
+"
+
+You should see:
+  - gndvi
+  - gndvimean
+  - gndvistd
+  - gndvimin
+  - gndvimax
+
+Part 5: Update Code
+cd ~/CapstoneInterface
+git pull origin main 2>/dev/null || echo "Git not configured - will need to sync manually"
+
+Part 6: Update Dependencies
+cd server
+npm install --production
+cd ..
+
+cd pythonprocessing
+source venv/bin/activate
+pip install -r requirements.txt --quiet
+deactivate
+cd ..
+
+Part 7: Restart Services
+pm2 restart all
+pm2 status
+
+Step 3: Verify Fix
+
+After restarting, check the health endpoint:
+
+curl http://localhost:5050/api/health | python3 -m json.tool
+
+Should show:
+{
+  "status": "ok",
+  "database": "connected",
+  "service": "nodejs-backend",
+  "gndviColumns": true
+}
+
+If Session Times Out
+
+EC2 Instance Connect sessions are 60 seconds. If you need more time:
+  Run commands in smaller chunks
+  Reconnect as needed
+  Or fix SSH security group (see fix-security-group.sh) for persistent access
+
+Alternative: Fix Security Group First
+
+If you want persistent SSH access, fix the security group first:
+  AWS Console → EC2 → Instances → Select your instance
+  Security tab → Click Security Group name
+  Edit inbound rules → Add rule:
+  - Type: SSH
+  - Port: 22
+  - Source: 0.0.0.0/0
+  Save rules
+
+Then use the migration script:
+./deploy/migrate-and-update.sh ~/Downloads/MS04ID.pem ubuntu@ec2-18-223-169-5.us-east-2.compute.amazonaws.com

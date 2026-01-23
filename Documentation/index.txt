@@ -1,0 +1,128 @@
+DOCUMENTATION INDEX
+===================
+
+This directory contains all project documentation organized by category.
+Documentation is available in both Markdown (.md) and plain text (.txt) formats.
+
+STRUCTURE
+---------
+
+documentation/
+  frontend/          - Frontend-specific documentation (currently empty)
+  backend/           - Backend integration and setup documentation
+  ml/                - Machine learning, model training, and Python processing
+  deployment/        - Deployment guides for EC2, Netlify, S3, and troubleshooting
+  misc/              - Miscellaneous reports, audits, and project summaries
+  api/               - API endpoint documentation (Flask and Node.js)
+  database/          - Database schema and migration guides
+  architecture/      - System architecture and design documentation
+  getting-started/   - Quick start guides and project overview
+  development/       - Local development setup and testing guides
+
+FILE FORMATS
+------------
+
+Each documentation file is available in two formats:
+  - .md files - Markdown format (for GitHub rendering and editing)
+  - .txt files - Plain text format (for universal readability)
+
+Both formats contain the same content, so you can use whichever is more convenient.
+
+QUICK NAVIGATION
+----------------
+
+Getting Started:
+  - getting-started/README.md or README.txt - Quick start guide
+  - getting-started/PROJECT_OVERVIEW.md or PROJECT_OVERVIEW.txt - System overview
+
+Development:
+  - development/README.md or README.txt - Development setup
+  - development/LOCAL_TESTING.md or LOCAL_TESTING.txt - Local testing guide
+
+Backend:
+  - backend/INTEGRATION_COMPLETE.md or INTEGRATION_COMPLETE.txt - Backend integration details
+
+Machine Learning:
+  - ml/README.md or README.txt - Python processing overview
+  - ml/ML_TRAINING_GUIDE.md or ML_TRAINING_GUIDE.txt - Model training guide
+  - ml/ML_IMPLEMENTATION_SUMMARY.md or ML_IMPLEMENTATION_SUMMARY.txt - ML implementation summary
+  - ml/ml_pipeline.md or ml_pipeline.txt - ML pipeline documentation
+  - ml/datasets.md or datasets.txt - Dataset information
+  - ml/datasets_README.md or datasets_README.txt - Dataset scripts documentation
+  - ml/BACKGROUND_WORKER.md or BACKGROUND_WORKER.txt - Background worker details
+  - ml/BACKGROUND_WORKER_SETUP.md or BACKGROUND_WORKER_SETUP.txt - Worker setup guide
+  - ml/IMAGE_CAPTURE.md or IMAGE_CAPTURE.txt - Image capture implementation
+  - ml/ML_TRAINING.md or ML_TRAINING.txt - ML training guide
+  - ml/ONION_CROP.md or ONION_CROP.txt - Onion crop-specific features
+
+API Documentation:
+  - api/README.md or README.txt - API overview
+  - api/FLASK_API.md or FLASK_API.txt - Flask API endpoints
+  - api/NODE_API.md or NODE_API.txt - Node.js API endpoints
+
+Database:
+  - database/SCHEMA.md or SCHEMA.txt - Database schema
+  - database/MIGRATIONS.md or MIGRATIONS.txt - Migration guides
+
+Deployment:
+  - deployment/README.md or README.txt - Deployment overview
+  - deployment/EC2.md or EC2.txt - EC2 backend setup
+  - deployment/NETLIFY.md or NETLIFY.txt - Netlify frontend deployment
+  - deployment/NETLIFY_QUICK_START.md or NETLIFY_QUICK_START.txt - Quick Netlify setup
+  - deployment/NETLIFY_TROUBLESHOOTING.md or NETLIFY_TROUBLESHOOTING.txt - Netlify troubleshooting
+  - deployment/S3.md or S3.txt - S3 storage configuration
+  - deployment/QUICK_DEPLOY.md or QUICK_DEPLOY.txt - Quick deployment guide
+  - deployment/FIX_FETCH_ERROR.md or FIX_FETCH_ERROR.txt - Fetch error fixes
+  - deployment/DEPLOY_TO_EC2.md or DEPLOY_TO_EC2.txt - EC2 deployment guide
+  - deployment/DEPLOYMENT_INSTRUCTIONS.md or DEPLOYMENT_INSTRUCTIONS.txt - Deployment instructions
+  - deployment/EC2_DEPLOY_NOW.md or EC2_DEPLOY_NOW.txt - Quick EC2 deployment
+  - deployment/COMPLETE_BACKEND_FIX.md or COMPLETE_BACKEND_FIX.txt - Backend fix documentation
+  - deployment/COMPLETE_SETUP_MANUAL.md or COMPLETE_SETUP_MANUAL.txt - Complete setup manual
+  - deployment/DEPLOYMENT_ALTERNATIVES.md or DEPLOYMENT_ALTERNATIVES.txt - Alternative deployment methods
+  - deployment/DEPLOY_CORS_FIX.md or DEPLOY_CORS_FIX.txt - CORS fix documentation
+  - deployment/EC2_FIX_INSTRUCTIONS.md or EC2_FIX_INSTRUCTIONS.txt - EC2 fix instructions
+  - deployment/EC2_UPDATE_INSTRUCTIONS.md or EC2_UPDATE_INSTRUCTIONS.txt - EC2 update instructions
+  - deployment/FIX_502_INSTRUCTIONS.md or FIX_502_INSTRUCTIONS.txt - 502 error fix instructions
+  - deployment/MANUAL_SETUP.md or MANUAL_SETUP.txt - Manual setup guide
+  - deployment/MIGRATION_INSTRUCTIONS.md or MIGRATION_INSTRUCTIONS.txt - Migration instructions
+  - deployment/NEW_EC2_SETUP.md or NEW_EC2_SETUP.txt - New EC2 setup guide
+  - deployment/QUICK_FIX_502.md or QUICK_FIX_502.txt - Quick 502 fix guide
+  - deployment/QUICK_START.md or QUICK_START.txt - Quick start guide
+  - deployment/fix-ssh-connection.md or fix-ssh-connection.txt - SSH connection fixes
+  - deployment/manual-migration-steps.md or manual-migration-steps.txt - Manual migration steps
+  - deployment/quick-connect-guide.md or quick-connect-guide.txt - Quick connection guide
+  - deployment/run-migration-via-instance-connect.md or run-migration-via-instance-connect.txt - Migration via Instance Connect
+  - deployment/setup-session-manager.md or setup-session-manager.txt - Session manager setup
+  - deployment/quick-fix-instructions.txt - Quick fix instructions
+
+Architecture:
+  - architecture/README.md or README.txt - Architecture overview
+  - architecture/S3_INTEGRATION.md or S3_INTEGRATION.txt - S3 integration details
+  - architecture/S3_IMPLEMENTATION.md or S3_IMPLEMENTATION.txt - S3 implementation
+
+Miscellaneous:
+  - misc/PRODUCTION_DIAGNOSTIC_REPORT.md or PRODUCTION_DIAGNOSTIC_REPORT.txt - Production diagnostic report
+  - misc/ENTERPRISE_SECURITY_AUDIT_REPORT.md or ENTERPRISE_SECURITY_AUDIT_REPORT.txt - Security audit report
+  - misc/BACKEND_REDESIGN.md or BACKEND_REDESIGN.txt - Backend redesign documentation
+  - misc/FINAL_POLISH_CHANGES.md or FINAL_POLISH_CHANGES.txt - Final polish changes
+  - misc/FINAL_HARDENING_PASS.md or FINAL_HARDENING_PASS.txt - Final hardening pass
+  - misc/UI_TRANSFORMATION_SUMMARY.md or UI_TRANSFORMATION_SUMMARY.txt - UI transformation summary
+  - misc/MULTISPECTRAL_PIPELINE_FIXES.md or MULTISPECTRAL_PIPELINE_FIXES.txt - Multispectral pipeline fixes
+  - misc/NETLIFY_BANDWIDTH_OPTIMIZATION.md or NETLIFY_BANDWIDTH_OPTIMIZATION.txt - Netlify bandwidth optimization
+  - misc/DOCUMENTATION_ORGANIZATION.md or DOCUMENTATION_ORGANIZATION.txt - Documentation organization guide
+
+RELATED FILES
+-------------
+
+Main Project README: ../README.md (points to documentation/)
+Python Processing README: ../python_processing/README.md (points to documentation/ml/)
+
+NOTES
+-----
+
+- All documentation from the previous docs/ folder has been merged into this documentation/ folder
+- Both .md and .txt versions are available for each document
+- Use .md files for GitHub rendering and editing
+- Use .txt files for universal readability without markdown rendering
+- All references throughout the codebase have been updated to point to documentation/
+- The old docs/ folder has been removed

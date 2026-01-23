@@ -1,0 +1,62 @@
+Quick Connection Guide - Choose Your Method
+
+Method 1: Fix SSH (Fastest if working)
+
+If your instance has a stable IP or Elastic IP:
+  Check current IP in AWS Console
+  Test connection:
+      ssh -i ~/Downloads/MS04ID.pem ubuntu@<current-ip>
+  If it works, run the migration script
+
+Method 2: EC2 Instance Connect (No setup needed)
+
+Works immediately, 60-second sessions:
+  AWS Console → EC2 → Your instance → Connect
+  Choose EC2 Instance Connect tab
+  Click Connect (browser terminal opens)
+  Run commands (see "Quick Fix Commands" below)
+
+Note: Limited to 60 seconds, but you can reconnect multiple times.
+
+Method 3: Session Manager (Best long-term)
+
+Requires 5-10 minute setup, then permanent access:
+  Follow setup-session-manager.md to:
+  - Install/verify SSM agent
+  - Create IAM role with SSM permissions
+  - Attach role to instance
+  Wait 5-10 minutes for propagation
+  Connect via: EC2 → Instance → Connect → Session Manager
+
+Method 4: Elastic IP + Update Scripts
+
+Prevent future IP changes:
+  EC2 → Elastic IPs → Allocate
+  Associate with your instance
+  Update scripts with the Elastic IP
+  Use Method 1 going forward
+
+Quick Fix Commands (Run Once Connected)
+
+No matter which method you use, once connected, run:
+  Navigate to project
+cd ~/CapstoneInterface
+  Run database migration
+export $(grep -v '^#' pythonprocessing/.env | xargs)
+psql -U "$DBUSER" -d "$DBNAME" -h "${DBHOST:-localhost}" \
+  -f pythonprocessing/databasemigrationaddgndvi.sql
+  Verify migration
+psql -U "$DBUSER" -d "$DBNAME" -h "${DBHOST:-localhost}" -c "
+SELECT columnname FROM informationschema.columns 
+WHERE tablename='analyses' AND columnname LIKE 'gndvi%';
+"
+  Update code (if git is configured)
+git pull origin main 2>/dev/null || echo "Git not configured"
+  Update dependencies
+cd server && npm install --production && cd ..
+cd pythonprocessing && source venv/bin/activate && pip install -r requirements.txt --quiet && deactivate && cd ..
+  Restart services
+pm2 restart all
+pm2 status
+
+Expected result: The GNDVI column error should be fixed, and image uploads should work!

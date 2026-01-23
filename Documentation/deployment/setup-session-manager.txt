@@ -1,0 +1,69 @@
+Setting Up AWS Systems Manager Session Manager
+
+This guide will help you set up Session Manager so you can connect to EC2 without SSH.
+
+Prerequisites
+  SSM Agent (usually pre-installed on Amazon Linux 2 and Ubuntu 18.04+)
+  IAM Role with SSM permissions attached to the EC2 instance
+  Security Group allowing outbound HTTPS (port 443) to AWS endpoints
+
+Step 1: Check if SSM Agent is Installed
+
+Connect via SSH (if possible) or use EC2 Instance Connect, then run:
+
+Check if SSM agent is running
+sudo systemctl status amazon-ssm-agent
+
+If not installed, install it:
+For Ubuntu:
+sudo snap install amazon-ssm-agent --classic
+sudo systemctl enable amazon-ssm-agent
+sudo systemctl start amazon-ssm-agent
+
+For Amazon Linux 2:
+sudo yum install -y amazon-ssm-agent
+sudo systemctl enable amazon-ssm-agent
+sudo systemctl start amazon-ssm-agent
+
+Step 2: Create IAM Role for SSM
+  Go to IAM Console → Roles → Create Role
+  Select AWS Service → EC2 → Next
+  Search for and select AmazonSSMManagedInstanceCore policy
+  Click Next → Name it EC2-SSM-Role → Create Role
+
+Step 3: Attach IAM Role to EC2 Instance
+  Go to EC2 Console → Select your instance
+  Click Actions → Security → Modify IAM role
+  Select the EC2-SSM-Role you just created
+  Click Update IAM role
+
+Step 4: Verify SSM Agent is Running
+
+Wait 1-2 minutes for the role to propagate, then:
+  Go to Systems Manager Console → Fleet Manager
+  Your instance should appear in the list
+  If it shows "Online", Session Manager is ready
+
+Step 5: Connect via Session Manager
+  EC2 Console → Select your instance → Connect
+  Choose Session Manager tab
+  Click Connect
+
+You'll get a browser-based terminal!
+
+Troubleshooting
+
+Instance not showing in Fleet Manager:
+  - Wait 5-10 minutes after attaching IAM role
+  - Check SSM agent is running: sudo systemctl status amazon-ssm-agent
+  - Check agent logs: sudo tail -f /var/log/amazon/ssm/amazon-ssm-agent.log
+
+SSM Agent not starting:
+Restart the agent
+sudo systemctl restart amazon-ssm-agent
+sudo systemctl status amazon-ssm-agent
+
+IAM Role not working:
+  - Verify the role is attached: EC2 → Instance → Security tab
+  - Check the role has AmazonSSMManagedInstanceCore policy
+  - Ensure instance can reach AWS endpoints (check security group outbound rules)

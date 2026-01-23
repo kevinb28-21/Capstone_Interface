@@ -1,0 +1,116 @@
+Backend Integration Complete
+
+Overview
+
+The Node.js backend has been fully integrated with PostgreSQL and the Python image processing pipeline. All in-memory storage has been replaced with persistent database storage.
+
+Changes Implemented
+  PostgreSQL Database Integration ✅
+
+Created: server/src/db-utils.js
+  - Database connection pool management
+  - Functions for image CRUD operations
+  - Telemetry data management
+  - Error handling and connection testing
+
+Updated: server/src/server.js
+  - Replaced in-memory images Map with PostgreSQL queries
+  - Replaced in-memory telemetry object with database queries
+  - All API routes now use database instead of memory
+  Flask API Integration ✅
+
+Architecture:
+  - Node.js backend saves images to PostgreSQL with status 'uploaded'
+  - Background worker (pythonprocessing/backgroundworker.py) automatically monitors database
+  - When it finds images with status 'uploaded', it processes them:
+  - Downloads from S3 if needed
+  - Calculates NDVI, SAVI, GNDVI
+  - Runs TensorFlow classification (if enabled)
+  - Saves analysis results to database
+  - Updates image status to 'completed'
+
+No direct Flask API calls needed - the background worker handles everything automatically.
+
+Database Schema
+
+The backend uses the existing PostgreSQL schema:
+  - images - Image metadata and file information
+  - imagegps - GPS coordinates for each image
+  - analyses - NDVI, SAVI, GNDVI results and health scores
+  - telemetry - Current drone position
+  - routepoints - Flight path history
+  - geofences / geofencepoints - Geofence boundaries
+
+API Endpoints
+
+All endpoints now use PostgreSQL:
+  - GET /api/health - Health check with database status
+  - POST /api/images - Upload image (saves to DB, background worker processes it)
+  - GET /api/images - List all images from database
+  - GET /api/images/:id - Get single image from database
+  - GET /api/telemetry - Get telemetry from database
+  - POST /api/telemetry - Update telemetry in database
+
+Dependencies Added
+  - pg - PostgreSQL client for Node.js
+  - uuid - UUID generation for image IDs
+
+Environment Variables
+
+Add these to server/.env:
+
+Database
+DBHOST=localhost
+DBPORT=5432
+DBNAME=droneanalytics
+DBUSER=postgres
+DBPASSWORD=yourpassword
+
+Server
+PORT=5000
+ORIGIN=http://localhost:5173
+
+Setup Instructions
+  Install dependencies:
+      cd server
+   npm install
+  Ensure PostgreSQL is running and schema is created:
+      psql -U postgres -d droneanalytics -f server/database/schema.sql
+  Start the Node.js backend:
+      npm run dev
+  Start the background worker (in a separate terminal):
+      cd pythonprocessing
+   python background_worker.py
+   
+Data Flow
+  Image Upload:
+  - Client uploads image to Node.js backend (POST /api/images)
+  - Backend saves to S3 (if configured) or local storage
+  - Backend saves metadata to PostgreSQL with status 'uploaded'
+  - Returns image record immediately
+  Image Processing (Automatic):
+  - Background worker polls database for images with status 'uploaded'
+  - Downloads image from S3 if needed
+  - Processes image (NDVI, SAVI, GNDVI, TensorFlow)
+  - Saves analysis results to analyses table
+  - Updates image status to 'completed'
+  Image Retrieval:
+  - Client requests images (GET /api/images)
+  - Backend queries PostgreSQL with JOINs to get:
+  - Image metadata
+  - GPS coordinates
+  - Analysis results (NDVI, SAVI, GNDVI, health status)
+
+Benefits
+
+✅ Persistent Storage - Data survives server restarts
+✅ Automatic Processing - Background worker handles analysis automatically
+✅ Real Analysis - Uses actual NDVI/SAVI/GNDVI calculations, not placeholders
+✅ Scalable - Database can handle large volumes of images
+✅ Reliable - Connection pooling and error handling
+
+Next Steps
+  - Train TensorFlow model and enable it in background worker
+  - Add authentication/authorization
+  - Add rate limiting
+  - Add monitoring/alerting

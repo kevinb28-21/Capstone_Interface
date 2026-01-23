@@ -107,7 +107,7 @@ To add support for a new dataset:
 
 3. **Update label mappings**: Add dataset-specific mappings to `label_mapping.py`
 
-4. **Update documentation**: Add dataset to `docs/datasets.md`
+4. **Update documentation**: Add dataset to `documentation/ml/datasets.md`
 
 ## Label Mapping
 
@@ -153,8 +153,8 @@ Each parse script generates:
 
 ## See Also
 
-- `docs/datasets.md` - Complete dataset documentation
-- `docs/ML_TRAINING_GUIDE.md` - Training guide
+- `documentation/ml/datasets.md` - Complete dataset documentation
+- `documentation/ml/ML_TRAINING_GUIDE.md` - Training guide
 - `../train_multi_crop_model.py` - Training script
 
 

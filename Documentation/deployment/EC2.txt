@@ -1,0 +1,276 @@
+AWS EC2 Backend Setup Guide
+
+This guide helps you set up your Node.js backend on AWS EC2 and connect it to your Netlify frontend.
+
+Overview
+
+Your VITEAPIURL will be: http://YOUR-EC2-IP:5050 or https://your-domain.com (if you set up a domain)
+
+Step 1: Launch EC2 Instance
+  Go to AWS Console → EC2 → Launch Instance
+  Configure Instance:
+  - Name: drone-crop-health-backend
+  - AMI: Ubuntu 22.04 LTS (free tier eligible)
+  - Instance Type: t2.micro (free tier) or t3.small
+  - Key Pair: Create new or use existing
+  - Network Settings: 
+  - Allow HTTP (port 80)
+  - Allow HTTPS (port 443)
+  - Allow Custom TCP (port 5050) - for your backend
+  - Source: 0.0.0.0/0 (or restrict to your IP)
+  Launch Instance
+  Note your Public IP: You'll see it in the EC2 dashboard
+
+Step 2: Connect to EC2 Instance
+
+Via SSH:
+
+ssh -i your-key.pem ubuntu@YOUR-EC2-PUBLIC-IP
+
+Replace:
+  - your-key.pem with your key file path
+  - YOUR-EC2-PUBLIC-IP with your actual EC2 IP
+
+Step 3: Install Dependencies on EC2
+
+Update system
+sudo apt update && sudo apt upgrade -y
+
+Install Node.js 20.x
+curl -fsSL https://deb.nodesource.com/setup20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+Install Git
+sudo apt install git -y
+
+Install PM2 (process manager)
+sudo npm install -g pm2
+
+Install Nginx (reverse proxy)
+sudo apt install nginx -y
+
+Step 4: Clone and Setup Backend
+
+Clone your repository
+git clone https://github.com/kevinb28-21/CapstoneInterface.git
+cd CapstoneInterface/server
+
+Install dependencies
+npm install
+
+Create .env file
+nano .env
+
+Add to .env file:
+PORT=5050
+ORIGIN=https://your-netlify-app.netlify.app
+NODEENV=production
+AWSACCESSKEYID=your-key
+AWSSECRETACCESSKEY=your-secret
+AWSREGION=us-east-1
+S3BUCKETNAME=your-bucket
+DBHOST=localhost
+DBPORT=5432
+DBNAME=droneanalytics
+DBUSER=postgres
+DBPASSWORD=your-password
+
+Important: Replace your-netlify-app.netlify.app with your actual Netlify URL!
+
+Step 5: Set Up PM2 (Process Manager)
+
+Create server/ecosystem.config.js:
+
+module.exports = {
+  apps: [{
+    name: 'drone-backend',
+    script: 'src/server.js',
+    instances: 1,
+    execmode: 'fork',
+    env: {
+      NODEENV: 'production',
+      PORT: 5050
+    },
+    errorfile: './logs/err.log',
+    outfile: './logs/out.log',
+    logdateformat: 'YYYY-MM-DD HH:mm:ss Z',
+    mergelogs: true,
+    autorestart: true,
+    maxmemoryrestart: '1G'
+  }]
+}
+
+Start with PM2:
+cd ~/CapstoneInterface/server
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+Follow the command it outputs to enable startup on boot
+
+Step 6: Configure Nginx (Reverse Proxy)
+
+This allows you to use port 80/443 instead of 5050.
+
+Create Nginx config:
+sudo nano /etc/nginx/sites-available/drone-backend
+
+Add this configuration:
+server {
+    listen 80;
+    servername YOUR-EC2-PUBLIC-IP;  # Or your domain name
+
+    location / {
+        proxypass http://localhost:5050;
+        proxyhttpversion 1.1;
+        proxysetheader Upgrade $httpupgrade;
+        proxysetheader Connection 'upgrade';
+        proxysetheader Host $host;
+        proxysetheader X-Real-IP $remoteaddr;
+        proxysetheader X-Forwarded-For $proxyaddxforwardedfor;
+        proxysetheader X-Forwarded-Proto $scheme;
+        proxycachebypass $httpupgrade;
+    }
+}
+
+Enable the site:
+sudo ln -s /etc/nginx/sites-available/drone-backend /etc/nginx/sites-enabled/
+sudo nginx -t  # Test configuration
+sudo systemctl restart nginx
+
+Step 7: Set Up SSL (Optional but Recommended)
+
+Install Certbot:
+sudo apt install certbot python3-certbot-nginx -y
+
+Get SSL certificate:
+sudo certbot --nginx -d your-domain.com
+
+Or if using IP only (no domain):
+  - Use AWS Application Load Balancer with SSL
+  - Or use a service like Cloudflare Tunnel
+
+Step 8: Get Your Backend URL
+
+Option A: Using EC2 IP (HTTP)
+http://YOUR-EC2-PUBLIC-IP:5050
+Example: http://54.123.45.67:5050
+
+Option B: Using Nginx (Port 80)
+http://YOUR-EC2-PUBLIC-IP
+Example: http://54.123.45.67
+
+Option C: Using Domain (Recommended)
+https://api.yourdomain.com
+Example: https://api.dronecrophealth.com
+
+Step 9: Update Netlify Environment Variable
+  Go to Netlify Dashboard
+  Your Site → Site settings → Environment variables
+  Add/Edit variable:
+  - Key: VITEAPIURL
+  - Value: Your EC2 backend URL
+  - http://YOUR-EC2-IP:5050 (if using direct port)
+  - http://YOUR-EC2-IP (if using Nginx on port 80)
+  - https://api.yourdomain.com (if using domain with SSL)
+  Redeploy your Netlify site (or it will auto-redeploy)
+
+Step 10: Update CORS in Backend
+
+Make sure your backend allows requests from Netlify:
+
+In server/src/server.js, update CORS:
+const ORIGIN = process.env.ORIGIN || 'http://localhost:5173';
+
+app.use(cors({ 
+  origin: [
+    ORIGIN,
+    /\.netlify\.app$/  // Allow all Netlify domains
+  ],
+  credentials: true
+}));
+
+Or in .env on EC2:
+ORIGIN=https://your-netlify-app.netlify.app
+
+Step 11: Update netlify.toml
+
+Edit client/netlify.toml and update the redirect:
+
+[[redirects]]
+  from = "/api/*"
+  to = "http://YOUR-EC2-IP:5050/api/:splat"  # Or your domain
+  status = 200
+  force = true
+
+Then commit and push:
+git add client/netlify.toml
+git commit -m "Update netlify.toml with EC2 backend URL"
+git push
+
+Security Checklist
+  - [ ] EC2 Security Group allows port 5050 (or 80/443) from your IP or 0.0.0.0/0
+  - [ ] Backend .env file has correct ORIGIN (your Netlify URL)
+  - [ ] CORS is configured to allow Netlify domain
+  - [ ] AWS credentials are set in .env (not committed to git)
+  - [ ] PM2 is set to auto-restart on reboot
+  - [ ] Nginx is configured and running
+  - [ ] SSL certificate is installed (if using domain)
+
+Testing
+  Test backend directly:
+      curl http://YOUR-EC2-IP:5050/api/health
+      Should return: {"status":"ok"}
+  Test from Netlify:
+  - Visit your Netlify site
+  - Open browser console (F12)
+  - Check Network tab for API calls
+  - Should see requests to your EC2 backend
+  Test image upload:
+  - Upload an image through Netlify frontend
+  - Check EC2 logs: pm2 logs drone-backend
+  - Verify image appears in S3 bucket
+
+Monitoring
+
+View logs:
+pm2 logs drone-backend
+pm2 monit  # Real-time monitoring
+
+Check status:
+pm2 status
+pm2 info drone-backend
+
+Restart:
+pm2 restart drone-backend
+
+Troubleshooting
+
+Backend not accessible
+  - Check EC2 Security Group allows port 5050
+  - Check if PM2 is running: pm2 status
+  - Check backend logs: pm2 logs drone-backend
+  - Test locally on EC2: curl http://localhost:5050/api/health
+
+CORS errors
+  - Verify ORIGIN in backend .env includes Netlify URL
+  - Check CORS configuration in server.js
+  - Verify Netlify URL matches exactly
+
+Nginx not working
+  - Check Nginx status: sudo systemctl status nginx
+  - Test config: sudo nginx -t
+  - Check error logs: sudo tail -f /var/log/nginx/error.log
+
+Your VITEAPIURL
+
+Once your EC2 backend is running, your VITEAPIURL will be:
+
+http://YOUR-EC2-PUBLIC-IP:5050
+
+Or if using Nginx:
+http://YOUR-EC2-PUBLIC-IP
+
+Or if using a domain:
+https://api.yourdomain.com
+
+Set this in Netlify's environment variables, and your frontend will connect to your EC2 backend!

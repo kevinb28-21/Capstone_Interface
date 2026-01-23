@@ -2,7 +2,7 @@
 
 This directory contains the Python-based image processing pipeline for onion crop health monitoring.
 
-> 📚 **For complete documentation, see [docs/python-processing/README.md](../docs/python-processing/README.md)**
+> 📚 **For complete documentation, see [documentation/ml/README.md](../documentation/ml/README.md)**
 
 ## Components
 

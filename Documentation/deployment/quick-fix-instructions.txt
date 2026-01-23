@@ -1,0 +1,32 @@
+QUICK FIX INSTRUCTIONS
+======================
+
+Since SSH connection is timing out, here are the steps to fix the GNDVI column error:
+
+OPTION A: If you can SSH manually
+-----------------------------------
+1. SSH into EC2 (you may need to check AWS Console for current IP):
+   ssh -i ~/Downloads/MS04_ID.pem ubuntu@<current-ec2-ip-or-dns>
+
+2. Run these commands on EC2:
+   cd ~/Capstone_Interface
+   psql -U drone_user -d drone_analytics -f python_processing/database_migration_add_gndvi.sql
+   git pull origin main  # or use sync script from local machine
+   cd server && npm install --production && cd ..
+   cd python_processing && source venv/bin/activate && pip install -r requirements.txt && deactivate && cd ..
+   pm2 restart all
+
+OPTION B: Use AWS Systems Manager (if configured)
+-------------------------------------------------
+If you have SSM Session Manager enabled, you can connect without SSH:
+- AWS Console → EC2 → Your instance → Connect → Session Manager
+
+OPTION C: Check Connection Details
+-----------------------------------
+1. Go to AWS Console → EC2 → Your instance
+2. Check the "Public IPv4 address" - it may have changed
+3. Update the hostname in the scripts if needed
+4. Verify Security Group allows SSH from your IP
+
+The code is already fixed to handle missing columns gracefully, but running
+the migration will enable full GNDVI support.

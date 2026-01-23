@@ -1,0 +1,64 @@
+Quick Start - EC2 Deployment
+
+Prerequisites
+  Your idrsa key file must be accessible
+  Your EC2 instance must be running
+  Security group must allow SSH (port 22)
+
+Step 1: Locate Your Key File
+
+Your key file should be named idrsa. Common locations:
+  - ~/Downloads/idrsa
+  - ~/.ssh/idrsa
+  - Wherever you downloaded it from AWS
+
+Step 2: Copy Key to Project (Optional but Recommended)
+
+Copy your key file to the project directory
+cp /path/to/your/idrsa /Users/kevinbhatt/Desktop/Projects/CapstoneInterface/
+
+Step 3: Run Automated Setup
+
+Option A: If key is in project directory
+cd /Users/kevinbhatt/Desktop/Projects/CapstoneInterface
+./deploy/auto-setup.sh
+
+Option B: If key is elsewhere
+cd /Users/kevinbhatt/Desktop/Projects/CapstoneInterface
+./deploy/run-setup.sh
+When prompted, enter the full path to your key file
+
+Step 4: After Setup Completes
+  SSH into EC2:
+      ssh -i idrsa ec2-user@ec2-18-224-7-31.us-east-2.compute.amazonaws.com
+  Edit environment files:
+      nano ~/CapstoneInterface/server/.env
+   # Add your AWS credentials, database password, etc.
+   
+   nano ~/CapstoneInterface/pythonprocessing/.env
+   # Add your AWS credentials, database password, etc.
+  Copy PM2 configs:
+      cp ~/server-ecosystem.config.js ~/CapstoneInterface/server/ecosystem.config.js
+   cp ~/python-ecosystem.config.js ~/CapstoneInterface/pythonprocessing/ecosystem.config.js
+   cp ~/python-worker.config.js ~/CapstoneInterface/pythonprocessing/worker.config.js
+  Restart services:
+      pm2 restart all
+   pm2 status
+  Check logs:
+      pm2 logs
+   
+Troubleshooting
+
+Key file not found
+  - Make sure you've copied idrsa to the project directory
+  - Or use run-setup.sh and provide the full path when prompted
+
+Connection refused
+  - Check EC2 instance is running
+  - Verify security group allows SSH from your IP
+  - Check key file permissions: chmod 400 id_rsa
+
+Setup script fails
+  - Check EC2 has internet connection
+  - Verify you have sufficient disk space
+  - Check logs on EC2: ssh in and run pm2 logs

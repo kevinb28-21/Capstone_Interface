@@ -1,0 +1,263 @@
+Multi-Crop ML Training and Integration Guide
+
+This guide provides step-by-step instructions for training and integrating the multi-crop plant health model into the production system.
+
+Overview
+
+The multi-crop model supports:
+  - Crops: Cherry tomatoes, onions, corn
+  - Health Classes: veryhealthy, healthy, moderate, poor, verypoor, diseased, stressed, weeds, unknown
+  - Spectral Support: RGB (3 channels) and RGB+NIR (4 channels) with graceful degradation
+
+Prerequisites
+  Python 3.8+ with required packages (see requirements.txt)
+  PostgreSQL database with schema applied
+  Access to datasets (see documentation/datasets.md)
+
+Step 1: Dataset Preparation
+
+1.1 Download Datasets
+
+Download PlantVillage dataset
+python pythonprocessing/datasets/downloadplantvillage.py --output-dir ./data/plantvillage --method manual
+
+Download TOM2024 dataset (manual download required)
+python pythonprocessing/datasets/downloadtom2024.py --output-dir ./data/tom2024
+
+Download other datasets as needed (see documentation/datasets.md)
+
+1.2 Parse and Organize Datasets
+
+Parse PlantVillage dataset
+python pythonprocessing/datasets/parseplantvillage.py \
+    --input-dir ./data/plantvillage \
+    --output-dir ./data/processed/plantvillage \
+    --crops cherrytomato onion corn
+
+Parse TOM2024 dataset (onion)
+python pythonprocessing/datasets/parsetom2024.py \
+    --input-dir ./data/tom2024 \
+    --output-dir ./data/processed/tom2024 \
+    --crop onion
+
+1.3 Combine Processed Datasets
+
+Combine all processed datasets into a single training directory:
+
+Structure: ./data/training/
+cherrytomato/
+veryhealthy/
+healthy/
+...
+onion/
+veryhealthy/
+...
+corn/
+veryhealthy/
+...
+
+mkdir -p ./data/training
+cp -r ./data/processed/plantvillage/ ./data/training/
+cp -r ./data/processed/tom2024/ ./data/training/
+Add other datasets as needed
+
+Step 2: Database Migration
+
+Apply the database migration to add croptype support:
+
+Connect to PostgreSQL and run migration
+psql -U postgres -d droneanalytics -f server/database/migrationaddcroptype.sql
+
+Or via Python:
+
+import psycopg2
+with open('server/database/migrationaddcroptype.sql', 'r') as f:
+    sql = f.read()
+conn = psycopg2.connect(...)
+cur = conn.cursor()
+cur.execute(sql)
+conn.commit()
+
+Step 3: Model Training
+
+3.1 Configure Training
+
+Edit pythonprocessing/trainingconfig.yaml to adjust hyperparameters:
+
+model:
+  channels: 3  # Use 4 for RGB+NIR if you have multispectral data
+training:
+  epochs: 50
+  batchsize: 32
+
+3.2 Train Model
+
+Train RGB model (3 channels)
+python pythonprocessing/trainmulticropmodel.py \
+    --data-folder ./data/training \
+    --output-dir ./models/multicrop \
+    --channels 3 \
+    --epochs 50 \
+    --batch-size 32 \
+    --config pythonprocessing/trainingconfig.yaml
+
+Train multispectral model (4 channels) if you have RGB+NIR data
+python pythonprocessing/trainmulticropmodel.py \
+    --data-folder ./data/training \
+    --output-dir ./models/multicrop \
+    --channels 4 \
+    --epochs 50 \
+    --batch-size 32
+
+3.3 Training Output
+
+The training script will create:
+  - multicropmodelYYYYMMDDHHMMSSfinal.h5 - Final trained model
+  - multicropmodelYYYYMMDDHHMMSSbest.h5 - Best model (checkpoint)
+  - multicropmodelYYYYMMDDHHMMSSmetadata.json - Model metadata
+  - multicropmodelYYYYMMDDHHMMSSclasses.json - Class names
+
+Step 4: Integration
+
+4.1 Update Environment Variables
+
+Set environment variables for the background worker:
+
+.env file or environment
+USEMULTICROPMODEL=true
+MULTICROPMODELDIR=./models/multicrop
+MODELCHANNELS=3  # or 4 for RGB+NIR
+
+Or specify model path directly:
+
+MULTICROPMODELPATH=./models/multicrop/multicropmodelYYYYMMDDHHMMSSfinal.h5
+
+4.2 Test Model Inference
+
+Test the model on a sample image:
+
+from imageprocessor import analyzecrophealth
+
+result = analyzecrophealth(
+    'path/to/testimage.jpg',
+    usetensorflow=True,
+    usemulticrop=True,
+    channels=3
+)
+
+print(f"Crop Type: {result['croptype']} (confidence: {result.get('cropconfidence', 0):.2%})")
+print(f"Health: {result['healthstatus']} (confidence: {result.get('confidence', 0):.2%})")
+
+4.3 Deploy Background Worker
+
+The background worker will automatically use the multi-crop model if:
+  USEMULTICROPMODEL=true (default)
+  Model found in MULTICROPMODELDIR or MULTICROPMODELPATH is set
+
+Start background worker
+python pythonprocessing/backgroundworker.py
+
+Step 5: Validation
+
+5.1 Verify Database Records
+
+Check that croptype is being saved:
+
+SELECT 
+    a.croptype,
+    a.cropconfidence,
+    a.healthstatus,
+    a.confidence,
+    i.filename
+FROM analyses a
+JOIN images i ON a.imageid = i.id
+ORDER BY a.processedat DESC
+LIMIT 10;
+
+5.2 Monitor Worker Logs
+
+Check background worker logs for model usage:
+
+tail -f pythonprocessing/backgroundworker.log
+
+Look for messages like:
+Using multi-crop TensorFlow model: ./models/multicrop/multicropmodel...final.h5
+Multi-crop TensorFlow classification: crop=onion (confidence: 95.2%), health=healthy (confidence: 87.3%)
+
+Troubleshooting
+
+Model Not Found
+
+If the worker can't find the model:
+  Check MULTICROPMODELPATH or MULTICROPMODELDIR environment variables
+  Verify model file exists and is readable
+  Check file permissions
+
+Wrong Crop Type Predictions
+  Verify training data includes all three crops
+  Check class distribution in training data (should be balanced)
+  Retrain with more data for underrepresented crops
+
+Multispectral Issues
+  Ensure images have 4 channels (RGB+NIR) if using channels=4
+  Model will approximate NIR from green channel if RGB-only images provided
+  For best results, train separate models for RGB and RGB+NIR
+
+Database Errors
+  Ensure migration has been applied: migrationaddcroptype.sql
+  Check that croptype and cropconfidence columns exist in analyses table
+  Verify database connection and permissions
+
+Model Performance
+
+Expected Metrics
+
+After training, you should see:
+  - Health classification accuracy: >80% (target)
+  - Crop type accuracy: >85% (target)
+  - Confidence scores: >0.7 for high-confidence predictions
+
+Improving Performance
+  More Training Data: Add more images, especially for underrepresented classes
+  Data Augmentation: Enable augmentation in config (already enabled by default)
+  Transfer Learning: Use EfficientNetB0 or ResNet50 (already configured)
+  Hyperparameter Tuning: Adjust learning rate, batch size, epochs
+  Multispectral Data: Use RGB+NIR data when available for better accuracy
+
+Production Deployment
+
+Model Versioning
+
+Each trained model includes:
+  - Timestamp in filename
+  - Metadata JSON with training parameters
+  - Class names JSON
+
+Keep multiple model versions for:
+  - A/B testing
+  - Rollback capability
+  - Performance comparison
+
+Monitoring
+
+Monitor:
+  - Model inference time
+  - Prediction confidence distributions
+  - Crop type distribution in predictions
+  - Error rates
+
+Updates
+
+To update the model:
+  Train new model with additional data
+  Test on validation set
+  Deploy by updating MULTICROPMODELPATH
+  Monitor performance
+  Rollback if needed
+
+Support
+
+For issues or questions:
+  Check logs: pythonprocessing/backgroundworker.log
+  Review dataset documentation: documentation/datasets.md
+  Check model metadata: models/multicrop/*_metadata.json

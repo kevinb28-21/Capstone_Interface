@@ -1,0 +1,108 @@
+Manual Migration and Update Steps
+
+Since SSH connection is timing out, follow these steps manually when you can connect to EC2.
+
+Step 1: Connect to EC2
+
+ssh -i ~/Downloads/MS04ID.pem ubuntu@ec2-18-223-169-5.us-east-2.compute.amazonaws.com
+
+Note: If this doesn't work, check:
+  - AWS Console → EC2 → Your instance → Check the current Public IPv4 address
+  - Update the hostname if the IP changed
+  - Verify Security Group allows SSH (port 22) from your IP
+
+Step 2: Run Database Migration
+
+Once connected to EC2, run:
+
+cd ~/CapstoneInterface
+
+Make sure migration file exists
+ls -la pythonprocessing/databasemigrationaddgndvi.sql
+
+Load environment variables
+source pythonprocessing/.env
+
+Run migration
+psql -U "$DBUSER" -d "$DBNAME" -h "${DBHOST:-localhost}" \
+  -f pythonprocessing/databasemigrationaddgndvi.sql
+
+Verify migration
+psql -U "$DBUSER" -d "$DBNAME" -h "${DBHOST:-localhost}" -c "
+SELECT columnname 
+FROM informationschema.columns 
+WHERE tablename='analyses' AND columnname LIKE 'gndvi%'
+ORDER BY columnname;
+"
+
+Step 3: Update Backend Code
+
+cd ~/CapstoneInterface
+
+Pull latest code from GitHub
+git pull origin main
+
+If git pull fails (not a git repo), initialize it:
+git init
+git remote add origin https://github.com/kevinb28-21/CapstoneInterface.git
+git fetch origin
+git checkout -b main origin/main
+
+Update Node.js dependencies
+cd server
+npm install --production
+cd ..
+
+Update Python dependencies
+cd pythonprocessing
+source venv/bin/activate
+pip install -r requirements.txt --quiet
+deactivate
+cd ..
+
+Step 4: Restart Services
+
+Restart all PM2 services
+pm2 restart all
+
+Check status
+pm2 status
+
+View logs if needed
+pm2 logs server
+pm2 logs flask-api
+pm2 logs background-worker
+
+Step 5: Verify Everything Works
+
+Check health endpoint
+curl http://localhost:5050/api/health
+
+Should show:
+{
+"status": "ok",
+"database": "connected",
+"service": "nodejs-backend",
+"gndviColumns": true
+}
+
+Troubleshooting
+
+If migration fails with "permission denied":
+sudo -u postgres psql -d droneanalytics -f ~/CapstoneInterface/pythonprocessing/databasemigrationaddgndvi.sql
+
+If git pull fails:
+The project might have been transferred via SCP. You can either:
+  Initialize git repo (see Step 3)
+  Or manually copy files using the sync script from your local machine
+
+If services don't restart:
+Stop all services
+pm2 stop all
+
+Delete and restart
+pm2 delete all
+cd ~/CapstoneInterface/server && pm2 start ecosystem.config.cjs
+cd ~/CapstoneInterface/pythonprocessing && pm2 start ecosystem.config.cjs
+cd ~/CapstoneInterface/pythonprocessing && pm2 start worker.config.cjs
+pm2 save

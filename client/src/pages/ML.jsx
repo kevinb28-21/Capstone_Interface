@@ -253,7 +253,12 @@ export default function MLPage() {
             </div>
           ) : (
             <div style={{ padding: 20, textAlign: 'center', color: '#6b7280' }}>
-              No ML predictions available yet. Train a model and process some images to see statistics.
+              <div style={{ fontSize: 16, marginBottom: 8 }}>No ML predictions available yet</div>
+              <div style={{ fontSize: 14 }}>
+                {images.length === 0 
+                  ? 'Upload and process images to see ML performance statistics.'
+                  : 'Processing images... Check back soon to see prediction statistics.'}
+              </div>
             </div>
           )}
         </div>
@@ -342,10 +347,10 @@ export default function MLPage() {
             <div className="empty-state">
               <div className="empty-state-icon">🤖</div>
               <div>No ML predictions yet</div>
-              <div style={{ fontSize: 14, marginTop: 8, color: '#6b7280' }}>
+              <div style={{ fontSize: 14, marginTop: 8, color: '#6b7280', lineHeight: 1.6 }}>
                 {images.length > 0 
-                  ? 'Model found, but no processed images yet. Upload images and ensure the background worker is running.'
-                  : 'Train a model and process images to see predictions here.'}
+                  ? 'Images are being processed. The background worker analyzes uploaded images and generates predictions automatically.'
+                  : 'Upload images through the Analytics page. The system will process them and display ML predictions here.'}
               </div>
             </div>
           )}

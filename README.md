@@ -2,7 +2,7 @@
 
 This project is a full‑stack web application for monitoring onion crop health using drone-captured images. The platform performs automated analysis using vegetation indices (NDVI, SAVI, GNDVI) and machine learning models.
 
-> 📚 **For complete documentation, see [docs/README.md](./docs/README.md)**
+> 📚 **For complete documentation, see [documentation/README.md](./documentation/README.md)**
 
 ### Features
 - Image upload API with placeholder crop health analysis (mock NDVI/stress zones)
